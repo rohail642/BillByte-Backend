@@ -85,6 +85,13 @@ async def get_profile(current_user: User = Depends(get_current_user), db: AsyncS
         gstin=rest.gstin,
         fssai=rest.fssai,
         gst_rate=rest.gst_rate,
+        restaurant_id=rest.id,
+        zomato_enabled=rest.zomato_enabled,
+        zomato_restaurant_id=rest.zomato_restaurant_id,
+        swiggy_enabled=rest.swiggy_enabled,
+        swiggy_restaurant_id=rest.swiggy_restaurant_id,
+        razorpay_enabled=rest.razorpay_enabled,
+        razorpay_key_id=rest.razorpay_key_id,
     )
 
 
@@ -109,6 +116,16 @@ async def update_profile(
     if body.gstin is not None:           rest.gstin   = body.gstin
     if body.fssai is not None:           rest.fssai   = body.fssai
     if body.gst_rate is not None:        rest.gst_rate= body.gst_rate
+    # Integrations
+    if body.zomato_enabled is not None:       rest.zomato_enabled       = body.zomato_enabled
+    if body.zomato_secret is not None:        rest.zomato_secret        = body.zomato_secret
+    if body.zomato_restaurant_id is not None: rest.zomato_restaurant_id = body.zomato_restaurant_id
+    if body.swiggy_enabled is not None:       rest.swiggy_enabled       = body.swiggy_enabled
+    if body.swiggy_secret is not None:        rest.swiggy_secret        = body.swiggy_secret
+    if body.swiggy_restaurant_id is not None: rest.swiggy_restaurant_id = body.swiggy_restaurant_id
+    if body.razorpay_enabled is not None:     rest.razorpay_enabled     = body.razorpay_enabled
+    if body.razorpay_key_id is not None:      rest.razorpay_key_id      = body.razorpay_key_id
+    if body.razorpay_key_secret is not None:  rest.razorpay_key_secret  = body.razorpay_key_secret
 
     await db.flush()
     return ProfileOut(
@@ -116,4 +133,11 @@ async def update_profile(
         phone=current_user.phone, restaurant_name=rest.name,
         address=rest.address, city=rest.city,
         gstin=rest.gstin, fssai=rest.fssai, gst_rate=rest.gst_rate,
+        restaurant_id=rest.id,
+        zomato_enabled=rest.zomato_enabled,
+        zomato_restaurant_id=rest.zomato_restaurant_id,
+        swiggy_enabled=rest.swiggy_enabled,
+        swiggy_restaurant_id=rest.swiggy_restaurant_id,
+        razorpay_enabled=rest.razorpay_enabled,
+        razorpay_key_id=rest.razorpay_key_id,
     )

@@ -156,14 +156,25 @@ async def redeem_points(cust_id: int, body: RedeemPointsRequest, db: AsyncSessio
     cust = r.scalar_one_or_none()
     if not cust:
         raise HTTPException(404, "Customer not found")
-    if body.points < 100:
-        raise HTTPException(400, "Minimum 100 points required to redeem")
-    if cust.loyalty_points < body.points:
-        raise HTTPException(400, f"Only {cust.loyalty_points} points available")
-    cust.loyalty_points -= body.points
+
+    pts = body.points
+
+    if pts > 0:
+        # Redeeming points
+        if pts < 100:
+            raise HTTPException(400, "Minimum 100 points required to redeem")
+        if cust.loyalty_points < pts:
+            raise HTTPException(400, f"Only {cust.loyalty_points} points available")
+        cust.loyalty_points -= pts
+        desc = f"Redeemed {pts} points = ₹{pts} discount on bill"
+    else:
+        # Restoring points (when customer removes applied discount)
+        pts_to_restore = abs(pts)
+        cust.loyalty_points += pts_to_restore
+        desc = f"Restored {pts_to_restore} points (discount removed)"
+
     db.add(LoyaltyTransaction(
         customer_id=cust.id, restaurant_id=u.restaurant_id,
-        points=-body.points,
-        description=f"Redeemed {body.points} points = ₹{body.points} discount",
+        points=pts, description=desc,
     ))
     return cust

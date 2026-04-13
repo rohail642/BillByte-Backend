@@ -21,6 +21,19 @@ class Restaurant(Base):
     trial_ends_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    # Integrations — per restaurant webhook secrets
+    zomato_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    zomato_secret:  Mapped[str]  = mapped_column(String(500), nullable=True)
+    zomato_restaurant_id: Mapped[str] = mapped_column(String(100), nullable=True)
+
+    swiggy_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    swiggy_secret:  Mapped[str]  = mapped_column(String(500), nullable=True)
+    swiggy_restaurant_id: Mapped[str] = mapped_column(String(100), nullable=True)
+
+    razorpay_enabled:   Mapped[bool] = mapped_column(Boolean, default=False)
+    razorpay_key_id:    Mapped[str]  = mapped_column(String(200), nullable=True)
+    razorpay_key_secret:Mapped[str]  = mapped_column(String(200), nullable=True)
+
     users: Mapped[list["User"]] = relationship("User", back_populates="restaurant")
 
 

@@ -3,6 +3,8 @@ from typing import List
 
 
 class Settings(BaseSettings):
+    ZOMATO_WEBHOOK_SECRET: str = ""
+    SWIGGY_WEBHOOK_SECRET: str = ""
     APP_NAME: str = "BillByte"
     DEBUG: bool = True
 

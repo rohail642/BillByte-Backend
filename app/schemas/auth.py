@@ -47,6 +47,16 @@ class UpdateProfileRequest(BaseModel):
     gstin: Optional[str] = None
     fssai: Optional[str] = None
     gst_rate: Optional[float] = None
+    # Integrations
+    zomato_enabled: Optional[bool] = None
+    zomato_secret: Optional[str] = None
+    zomato_restaurant_id: Optional[str] = None
+    swiggy_enabled: Optional[bool] = None
+    swiggy_secret: Optional[str] = None
+    swiggy_restaurant_id: Optional[str] = None
+    razorpay_enabled: Optional[bool] = None
+    razorpay_key_id: Optional[str] = None
+    razorpay_key_secret: Optional[str] = None
 
 
 class ProfileOut(BaseModel):
@@ -59,6 +69,14 @@ class ProfileOut(BaseModel):
     gstin: Optional[str]
     fssai: Optional[str]
     gst_rate: float
+    restaurant_id: Optional[int] = None
+    # Integrations
+    zomato_enabled: Optional[bool] = False
+    zomato_restaurant_id: Optional[str] = None
+    swiggy_enabled: Optional[bool] = False
+    swiggy_restaurant_id: Optional[str] = None
+    razorpay_enabled: Optional[bool] = False
+    razorpay_key_id: Optional[str] = None
 
     class Config:
         from_attributes = True
