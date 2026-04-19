@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timedelta
@@ -141,3 +143,112 @@ async def update_profile(
         razorpay_enabled=rest.razorpay_enabled,
         razorpay_key_id=rest.razorpay_key_id,
     )
+
+
+# ── Team / User Management ─────────────────────────────────────────────────────
+from app.core.security import require_role
+from app.core.security import hash_password
+
+class TeamMemberCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: str = "waiter"  # waiter|cashier|manager
+
+class TeamMemberOut(BaseModel):
+    id: int
+    name: str
+    email: str
+    role: str
+    is_active: bool
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class TeamMemberUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
+
+
+@router.get("/team", response_model=List[TeamMemberOut])
+async def list_team(
+    db: AsyncSession = Depends(get_db),
+    u: User = Depends(require_role("owner", "manager")),
+):
+    """List all users in the restaurant."""
+    r = await db.execute(
+        select(User).where(User.restaurant_id == u.restaurant_id, User.id != u.id)
+        .order_by(User.name)
+    )
+    return r.scalars().all()
+
+
+@router.post("/team", response_model=TeamMemberOut, status_code=201)
+async def add_team_member(
+    body: TeamMemberCreate,
+    db: AsyncSession = Depends(get_db),
+    u: User = Depends(require_role("owner")),
+):
+    """Owner adds a new staff member with login access."""
+    # Only owner can create managers, managers can't create managers
+    if body.role not in ("waiter", "cashier", "manager"):
+        raise HTTPException(400, "Invalid role. Use: waiter, cashier, manager")
+
+    existing = await db.execute(select(User).where(User.email == body.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "Email already in use")
+
+    member = User(
+        restaurant_id=u.restaurant_id,
+        name=body.name,
+        email=body.email,
+        hashed_password=hash_password(body.password),
+        role=body.role,
+        is_active=True,
+    )
+    db.add(member)
+    await db.flush()
+    return member
+
+
+@router.patch("/team/{user_id}", response_model=TeamMemberOut)
+async def update_team_member(
+    user_id: int,
+    body: TeamMemberUpdate,
+    db: AsyncSession = Depends(get_db),
+    u: User = Depends(require_role("owner")),
+):
+    r = await db.execute(
+        select(User).where(User.id == user_id, User.restaurant_id == u.restaurant_id)
+    )
+    member = r.scalar_one_or_none()
+    if not member:
+        raise HTTPException(404, "Team member not found")
+    if member.id == u.id:
+        raise HTTPException(400, "Cannot modify yourself here")
+
+    if body.name is not None:     member.name      = body.name
+    if body.role is not None:     member.role      = body.role
+    if body.is_active is not None: member.is_active = body.is_active
+    if body.password is not None: member.hashed_password = hash_password(body.password)
+
+    return member
+
+
+@router.delete("/team/{user_id}", status_code=204)
+async def remove_team_member(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    u: User = Depends(require_role("owner")),
+):
+    r = await db.execute(
+        select(User).where(User.id == user_id, User.restaurant_id == u.restaurant_id)
+    )
+    member = r.scalar_one_or_none()
+    if not member:
+        raise HTTPException(404, "Team member not found")
+    if member.id == u.id:
+        raise HTTPException(400, "Cannot remove yourself")
+    member.is_active = False

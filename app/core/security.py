@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.session import get_db
+from app.models.user import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -63,3 +64,31 @@ async def require_owner(current_user=Depends(get_current_user)):
     if current_user.role not in ("owner", "manager"):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     return current_user
+
+
+# ── RBAC ──────────────────────────────────────────────────────────────────────
+ROLE_HIERARCHY = {"owner": 4, "manager": 3, "cashier": 2, "waiter": 1}
+
+def require_role(*allowed_roles):
+    """Dependency that checks user has one of the allowed roles."""
+    async def checker(current_user: User = Depends(get_current_user)):
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied. Required roles: {', '.join(allowed_roles)}"
+            )
+        return current_user
+    return checker
+
+def require_min_role(min_role: str):
+    """Dependency that checks user has at least the minimum role level."""
+    min_level = ROLE_HIERARCHY.get(min_role, 0)
+    async def checker(current_user: User = Depends(get_current_user)):
+        user_level = ROLE_HIERARCHY.get(current_user.role, 0)
+        if user_level < min_level:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied. Requires {min_role} or higher."
+            )
+        return current_user
+    return checker
