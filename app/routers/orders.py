@@ -292,6 +292,24 @@ async def collect_all_for_table(
         order.status = "paid"
         total_collected += total
 
+        # Award loyalty points and update customer stats
+        if order.customer_id:
+            cr = await db.execute(select(Customer).where(Customer.id == order.customer_id))
+            cust = cr.scalar_one_or_none()
+            if cust:
+                net_amount = max(0, (order.subtotal or 0) - (order.discount_amount or 0))
+                pts_earned = int(net_amount // 10)
+                if pts_earned > 0:
+                    cust.loyalty_points += pts_earned
+                    db.add(LoyaltyTransaction(
+                        customer_id=cust.id, restaurant_id=u.restaurant_id,
+                        order_id=order.id, points=pts_earned,
+                        description=f"Earned from order {order.order_number}",
+                    ))
+                cust.total_spent += total
+                cust.total_visits += 1
+                cust.last_visit_at = datetime.utcnow()
+
     return {"message": f"Collected ₹{round(total_collected,2)} from {len(orders)} order(s) on Table {table_number}", "total": round(total_collected, 2), "orders_paid": len(orders)}
 
 @router.get("/active-tables")
@@ -430,34 +448,38 @@ async def collect_payment(order_id: int, body: PaymentUpdate, db: AsyncSession =
         from app.routers.recipes import deduct_inventory_for_order
         await deduct_inventory_for_order(order.items, u.restaurant_id, order.id, db)
 
-    # Award loyalty points — 1 pt per ₹10 spent (on subtotal only, not GST)
-    # Don't award if discount was applied (points were redeemed)
+    # CRM: award loyalty points and update customer stats
     if order.customer_id:
         cr = await db.execute(select(Customer).where(Customer.id == order.customer_id))
         cust = cr.scalar_one_or_none()
         if cust:
-            # Check if points were redeemed for this order already
-            redemption_r = await db.execute(
-                select(LoyaltyTransaction).where(
-                    LoyaltyTransaction.customer_id == cust.id,
-                    LoyaltyTransaction.order_id == order.id,
-                    LoyaltyTransaction.points < 0,  # negative = redemption
-                )
-            )
-            already_redeemed = redemption_r.scalar_one_or_none()
-
-            # Award on subtotal minus discount (net amount customer actually paid)
-            net_amount = max(0, (order.subtotal or 0) - (order.discount_amount or 0))
-            pts = int(net_amount // 10)
-
-            # Don't award if points were redeemed (to avoid gaming the system)
-            if pts > 0 and not already_redeemed:
-                cust.loyalty_points += pts
+            # Handle points redemption atomically — deduct before awarding to prevent double-dipping
+            redeemed = False
+            if body.points_to_redeem > 0:
+                pts_to_redeem = body.points_to_redeem
+                if pts_to_redeem < 100:
+                    raise HTTPException(400, "Minimum 100 points required to redeem")
+                if cust.loyalty_points < pts_to_redeem:
+                    raise HTTPException(400, f"Only {cust.loyalty_points} points available")
+                cust.loyalty_points -= pts_to_redeem
                 db.add(LoyaltyTransaction(
                     customer_id=cust.id, restaurant_id=u.restaurant_id,
-                    order_id=order.id, points=pts,
-                    description=f"Earned from order {order.order_number}",
+                    order_id=order.id, points=-pts_to_redeem,
+                    description=f"Redeemed {pts_to_redeem} points on order {order.order_number}",
                 ))
+                redeemed = True
+
+            # Award earned points only if no redemption happened on this order
+            if not redeemed:
+                net_amount = max(0, (order.subtotal or 0) - (order.discount_amount or 0))
+                pts_earned = int(net_amount // 10)
+                if pts_earned > 0:
+                    cust.loyalty_points += pts_earned
+                    db.add(LoyaltyTransaction(
+                        customer_id=cust.id, restaurant_id=u.restaurant_id,
+                        order_id=order.id, points=pts_earned,
+                        description=f"Earned from order {order.order_number}",
+                    ))
 
             cust.total_spent += total
             cust.total_visits += 1

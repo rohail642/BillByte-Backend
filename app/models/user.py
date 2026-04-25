@@ -1,4 +1,4 @@
-from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Float
+from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Float, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.session import Base
@@ -33,6 +33,9 @@ class Restaurant(Base):
     razorpay_enabled:   Mapped[bool] = mapped_column(Boolean, default=False)
     razorpay_key_id:    Mapped[str]  = mapped_column(String(200), nullable=True)
     razorpay_key_secret:Mapped[str]  = mapped_column(String(200), nullable=True)
+
+    table_count: Mapped[int] = mapped_column(Integer, default=10)
+    table_sections = mapped_column(JSON, nullable=True)
 
     users: Mapped[list["User"]] = relationship("User", back_populates="restaurant")
 

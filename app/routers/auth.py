@@ -94,6 +94,8 @@ async def get_profile(current_user: User = Depends(get_current_user), db: AsyncS
         swiggy_restaurant_id=rest.swiggy_restaurant_id,
         razorpay_enabled=rest.razorpay_enabled,
         razorpay_key_id=rest.razorpay_key_id,
+        table_count=rest.table_count,
+        table_sections=rest.table_sections or [],
     )
 
 
@@ -128,6 +130,8 @@ async def update_profile(
     if body.razorpay_enabled is not None:     rest.razorpay_enabled     = body.razorpay_enabled
     if body.razorpay_key_id is not None:      rest.razorpay_key_id      = body.razorpay_key_id
     if body.razorpay_key_secret is not None:  rest.razorpay_key_secret  = body.razorpay_key_secret
+    if body.table_count is not None:    rest.table_count    = body.table_count
+    if body.table_sections is not None: rest.table_sections = body.table_sections
 
     await db.flush()
     return ProfileOut(
@@ -142,6 +146,8 @@ async def update_profile(
         swiggy_restaurant_id=rest.swiggy_restaurant_id,
         razorpay_enabled=rest.razorpay_enabled,
         razorpay_key_id=rest.razorpay_key_id,
+        table_count=rest.table_count,
+        table_sections=rest.table_sections or [],
     )
 
 

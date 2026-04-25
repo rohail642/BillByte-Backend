@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List, Any
 
 
 class RegisterRequest(BaseModel):
@@ -57,6 +57,8 @@ class UpdateProfileRequest(BaseModel):
     razorpay_enabled: Optional[bool] = None
     razorpay_key_id: Optional[str] = None
     razorpay_key_secret: Optional[str] = None
+    table_count: Optional[int] = None
+    table_sections: Optional[List[Any]] = None
 
 
 class ProfileOut(BaseModel):
@@ -77,6 +79,8 @@ class ProfileOut(BaseModel):
     swiggy_restaurant_id: Optional[str] = None
     razorpay_enabled: Optional[bool] = False
     razorpay_key_id: Optional[str] = None
+    table_count: int = 10
+    table_sections: Optional[List[Any]] = None
 
     class Config:
         from_attributes = True

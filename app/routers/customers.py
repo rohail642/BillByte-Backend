@@ -54,7 +54,7 @@ async def lookup_by_phone(
         "loyalty_points": cust.loyalty_points,
         "total_visits": cust.total_visits,
         "total_spent": cust.total_spent,
-        "points_value": cust.loyalty_points,  # 1 point = ₹1
+        "points_value": round(cust.loyalty_points / 10, 2),  # 10 points = ₹1
     }
 
 
@@ -167,14 +167,18 @@ async def redeem_points(cust_id: int, body: RedeemPointsRequest, db: AsyncSessio
             raise HTTPException(400, f"Only {cust.loyalty_points} points available")
         cust.loyalty_points -= pts
         desc = f"Redeemed {pts} points = ₹{pts} discount on bill"
+        # Store as negative to match convention: positive=earned, negative=redeemed
+        db.add(LoyaltyTransaction(
+            customer_id=cust.id, restaurant_id=u.restaurant_id,
+            points=-pts, description=desc,
+        ))
     else:
         # Restoring points (when customer removes applied discount)
         pts_to_restore = abs(pts)
         cust.loyalty_points += pts_to_restore
         desc = f"Restored {pts_to_restore} points (discount removed)"
-
-    db.add(LoyaltyTransaction(
-        customer_id=cust.id, restaurant_id=u.restaurant_id,
-        points=pts, description=desc,
-    ))
+        db.add(LoyaltyTransaction(
+            customer_id=cust.id, restaurant_id=u.restaurant_id,
+            points=pts_to_restore, description=desc,
+        ))
     return cust

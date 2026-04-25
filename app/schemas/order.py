@@ -31,6 +31,7 @@ class OrderStatusUpdate(BaseModel):
 class PaymentUpdate(BaseModel):
     payment_method: str
     discount_percent: float = 0.0
+    points_to_redeem: int = 0
 
 
 class OrderItemOut(BaseModel):
