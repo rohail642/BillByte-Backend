@@ -112,17 +112,13 @@ async def update_profile(
     if not rest:
         raise HTTPException(404, "Restaurant not found")
 
-    # Update user fields
-    if body.name is not None:       current_user.name  = body.name
-    if body.phone is not None:      current_user.phone = body.phone
+    # Update user fields (phone only — name/email managed by admin)
+    if body.phone is not None: current_user.phone = body.phone
 
-    # Update restaurant fields
-    if body.restaurant_name is not None: rest.name    = body.restaurant_name
-    if body.address is not None:         rest.address = body.address
-    if body.city is not None:            rest.city    = body.city
-    if body.gstin is not None:           rest.gstin   = body.gstin
-    if body.fssai is not None:           rest.fssai   = body.fssai
-    if body.gst_rate is not None:        rest.gst_rate= body.gst_rate
+    # Update restaurant fields (admin-only: name, address, city)
+    if body.gstin is not None:    rest.gstin    = body.gstin
+    if body.fssai is not None:    rest.fssai    = body.fssai
+    if body.gst_rate is not None: rest.gst_rate = body.gst_rate
     # Integrations
     if body.zomato_enabled is not None:       rest.zomato_enabled       = body.zomato_enabled
     if body.zomato_secret is not None:        rest.zomato_secret        = body.zomato_secret
