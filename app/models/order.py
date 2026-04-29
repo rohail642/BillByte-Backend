@@ -1,6 +1,8 @@
-from sqlalchemy import String, Integer, Float, ForeignKey, Text, DateTime
+from sqlalchemy import String, Integer, Float, ForeignKey, Text, DateTime, JSON, func as sa_func
+from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
+from typing import Optional
 from app.db.session import Base
 
 
@@ -24,6 +26,9 @@ class Order(Base):
 
     status: Mapped[str] = mapped_column(String(30), default="pending")
     # pending → kot_sent → preparing → ready → served → paid → cancelled
+
+    # Per-KOT statuses e.g. {"1": "preparing", "2": "kot_sent"}
+    kot_statuses: Mapped[Optional[dict]] = mapped_column(MutableDict.as_mutable(JSON), nullable=True)
 
     payment_method: Mapped[str] = mapped_column(String(30), nullable=True)  # cash|upi|card
     payment_status: Mapped[str] = mapped_column(String(20), default="unpaid")
@@ -51,5 +56,8 @@ class OrderItem(Base):
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     total: Mapped[float] = mapped_column(Float)
     notes: Mapped[str] = mapped_column(String(500), nullable=True)
+    kot_number: Mapped[int] = mapped_column(Integer, default=1)
+    cancelled_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     order: Mapped["Order"] = relationship("Order", back_populates="items")

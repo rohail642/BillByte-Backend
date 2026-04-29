@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     ZOMATO_WEBHOOK_SECRET: str = ""
     SWIGGY_WEBHOOK_SECRET: str = ""
     APP_NAME: str = "BillByte"
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost/billbyte"
     SECRET_KEY: str = "change-me-in-production"

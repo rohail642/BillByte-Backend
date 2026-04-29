@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,12 +12,14 @@ from app.schemas.auth import (
     UserOut, UpdateProfileRequest, ProfileOut
 )
 from app.core.security import hash_password, verify_password, create_access_token, get_current_user
+from app.core.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def register(request: Request, body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise HTTPException(400, "Email already registered")
@@ -50,7 +52,8 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
     if not user or not verify_password(body.password, user.hashed_password):
@@ -199,8 +202,8 @@ async def add_team_member(
 ):
     """Owner adds a new staff member with login access."""
     # Only owner can create managers, managers can't create managers
-    if body.role not in ("waiter", "cashier", "manager"):
-        raise HTTPException(400, "Invalid role. Use: waiter, cashier, manager")
+    if body.role not in ("waiter", "cashier", "manager", "kitchen"):
+        raise HTTPException(400, "Invalid role. Use: waiter, cashier, manager, kitchen")
 
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():

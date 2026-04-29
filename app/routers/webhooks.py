@@ -47,7 +47,7 @@ async def _get_restaurant_by_id(restaurant_id: int, db: AsyncSession):
 def _verify_zomato_signature(payload: bytes, signature: str, secret: str) -> bool:
     """Verify Zomato webhook signature using restaurant-specific secret."""
     if not secret:
-        return True  # skip in dev mode
+        return False  # no secret configured — reject all requests
     expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature or '')
 
@@ -173,7 +173,7 @@ async def zomato_webhook(
 def _verify_swiggy_signature(payload: bytes, signature: str, secret: str) -> bool:
     """Verify Swiggy webhook signature using restaurant-specific secret."""
     if not secret:
-        return True  # skip in dev mode
+        return False  # no secret configured — reject all requests
     expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature or '')
 

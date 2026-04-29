@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -18,7 +18,7 @@ class OrderCreate(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     items: List[OrderItemCreate]
-    discount_percent: float = 0.0
+    discount_percent: float = Field(default=0.0, ge=0, le=100)
     notes: Optional[str] = None
     platform: Optional[str] = None
     platform_order_id: Optional[str] = None
@@ -30,7 +30,7 @@ class OrderStatusUpdate(BaseModel):
 
 class PaymentUpdate(BaseModel):
     payment_method: str
-    discount_percent: float = 0.0
+    discount_percent: float = Field(default=0.0, ge=0, le=100)
     points_to_redeem: int = 0
 
 
@@ -42,6 +42,9 @@ class OrderItemOut(BaseModel):
     quantity: int
     total: float
     notes: Optional[str]
+    kot_number: int = 1
+    cancelled_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -65,6 +68,7 @@ class OrderOut(BaseModel):
     notes: Optional[str]
     items: List[OrderItemOut]
     created_at: datetime
+    kot_statuses: Optional[dict] = None
 
     class Config:
         from_attributes = True

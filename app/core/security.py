@@ -67,7 +67,7 @@ async def require_owner(current_user=Depends(get_current_user)):
 
 
 # ── RBAC ──────────────────────────────────────────────────────────────────────
-ROLE_HIERARCHY = {"owner": 4, "manager": 3, "cashier": 2, "waiter": 1}
+ROLE_HIERARCHY = {"owner": 4, "manager": 3, "cashier": 2, "waiter": 1, "kitchen": 0}
 
 def require_role(*allowed_roles):
     """Dependency that checks user has one of the allowed roles."""
