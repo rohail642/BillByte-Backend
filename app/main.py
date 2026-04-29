@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.db.session import create_all_tables
-from app.routers import auth, menu, orders, inventory, customers, staff, reports, recipes, webhooks
+from app.routers import auth, menu, orders, inventory, customers, staff, reports, recipes, webhooks, admin
 
 
 @asynccontextmanager
@@ -41,6 +41,7 @@ app.include_router(staff.router,      prefix="/api")
 app.include_router(reports.router,    prefix="/api")
 app.include_router(recipes.router,    prefix="/api")
 app.include_router(webhooks.router,   prefix="/api")
+app.include_router(admin.router,      prefix="/api")
 
 
 @app.get("/", tags=["Health"])
