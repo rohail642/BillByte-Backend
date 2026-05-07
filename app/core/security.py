@@ -57,6 +57,17 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
+
+    # Kick out all restaurant staff if the restaurant has been deactivated/expired
+    if user.restaurant_id:
+        from app.models.user import Restaurant
+        rest = await db.get(Restaurant, user.restaurant_id)
+        if rest and not rest.is_active:
+            raise HTTPException(
+                status_code=401,
+                detail="Restaurant suspended or license expired. Please contact support.",
+            )
+
     return user
 
 

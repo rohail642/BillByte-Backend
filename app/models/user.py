@@ -1,4 +1,4 @@
-from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Float, JSON
+from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Float, JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.session import Base
@@ -36,6 +36,9 @@ class Restaurant(Base):
 
     table_count: Mapped[int] = mapped_column(Integer, default=10)
     table_sections = mapped_column(JSON, nullable=True)
+    enabled_modules    = mapped_column(JSON, nullable=True)  # null = all enabled
+    reminders_enabled  = mapped_column(Boolean, default=True, nullable=False, server_default='true')
+    notes              = mapped_column(Text, nullable=True)
 
     users: Mapped[list["User"]] = relationship("User", back_populates="restaurant")
 

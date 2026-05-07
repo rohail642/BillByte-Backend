@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List, Any
+from datetime import datetime
 
 
 class RegisterRequest(BaseModel):
@@ -24,6 +25,9 @@ class TokenResponse(BaseModel):
     role: str
     restaurant_name: Optional[str] = None
     phone: Optional[str] = None
+    trial_ends_at: Optional[datetime] = None
+    days_left: Optional[int] = None
+    enabled_modules: Optional[dict] = None
 
 
 class UserOut(BaseModel):
@@ -81,6 +85,7 @@ class ProfileOut(BaseModel):
     razorpay_key_id: Optional[str] = None
     table_count: int = 10
     table_sections: Optional[List[Any]] = None
+    enabled_modules: Optional[dict] = None
 
     class Config:
         from_attributes = True
