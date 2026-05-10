@@ -58,6 +58,14 @@ async def get_current_user(
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
+    # Admin impersonation: inject restaurant_id + role from token, skip suspension check
+    # Expunge first so SQLAlchemy does NOT track or commit these changes to the DB
+    if payload.get("impersonate"):
+        db.expunge(user)
+        user.restaurant_id = int(payload["restaurant_id"])
+        user.role = payload.get("role_override", "owner")
+        return user
+
     # Kick out all restaurant staff if the restaurant has been deactivated/expired
     if user.restaurant_id:
         from app.models.user import Restaurant

@@ -403,12 +403,57 @@ async def update_license(
         changes["expiry_date"] = {"from": old_expiry, "to": payload["expiry_date"]}
         r.trial_ends_at = _parse_date(payload["expiry_date"])
     await _log(db, admin, "update_license", "restaurant", r.id, r.name,
-               {"changes": changes} if changes else {"note": "no changes"})
+               {"plan": r.plan, "changes": changes} if changes else {"plan": r.plan, "note": "no changes"})
     await db.commit()
     await db.refresh(r)
     return {"plan": r.plan, "expiry_date": r.trial_ends_at, "created_at": r.created_at,
             "days_left": _restaurant_detail_dict(r)["days_left"],
             "expiry_status": _restaurant_detail_dict(r)["expiry_status"]}
+
+
+# ── License History ──────────────────────────────────────────────────────────
+
+@router.get("/restaurants/{restaurant_id}/license-history")
+async def license_history(
+    restaurant_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_super_admin),
+):
+    r = await _get_restaurant_or_404(restaurant_id, db)
+
+    LICENSE_ACTIONS = {
+        "update_license", "bulk_change_plan", "bulk_extend_trial",
+        "bulk_activate", "bulk_suspend", "restaurant_auto_deactivated",
+        "create_restaurant",
+    }
+    result = await db.execute(
+        select(ActivityLog)
+        .where(ActivityLog.target_id == restaurant_id, ActivityLog.action.in_(LICENSE_ACTIONS))
+        .order_by(ActivityLog.created_at.asc())
+    )
+    logs = result.scalars().all()
+
+    # Always prepend the registration entry
+    history = [{
+        "id": None,
+        "action": "create_restaurant",
+        "date": r.created_at.isoformat(),
+        "by": "System",
+        "details": {"plan": "trial", "note": "Restaurant registered"},
+    }]
+
+    for log in logs:
+        if log.action == "create_restaurant":
+            continue  # already added above
+        history.append({
+            "id": log.id,
+            "action": log.action,
+            "date": log.created_at.isoformat(),
+            "by": log.admin_name or "System",
+            "details": log.details or {},
+        })
+
+    return history
 
 
 # ── Update Modules ───────────────────────────────────────────────────────────
@@ -515,19 +560,18 @@ async def impersonate_restaurant(
     admin: User = Depends(require_super_admin),
 ):
     r = await _get_restaurant_or_404(restaurant_id, db)
-    result = await db.execute(
-        select(User).where(User.restaurant_id == restaurant_id, User.role == "owner", User.is_active == True)
-    )
-    owner = result.scalars().first()
-    if not owner:
-        raise HTTPException(404, "No active owner account found for this restaurant.")
-    token = create_access_token({"sub": str(owner.id), "restaurant_id": str(owner.restaurant_id)})
-    await _log(db, admin, "impersonate", "restaurant", r.id, r.name, {"owner_email": owner.email})
+    token = create_access_token({
+        "sub": str(admin.id),
+        "restaurant_id": str(restaurant_id),
+        "role_override": "owner",
+        "impersonate": True,
+    })
+    await _log(db, admin, "impersonate", "restaurant", r.id, r.name, {"admin": admin.email})
     await db.commit()
     return {
         "token": token,
-        "owner_name": owner.name,
-        "owner_email": owner.email,
+        "admin_name": admin.name,
+        "admin_email": admin.email,
         "restaurant_name": r.name,
         "restaurant_id": r.id,
     }
@@ -566,7 +610,10 @@ async def bulk_action(
             base = r.trial_ends_at or datetime.now(timezone.utc)
             base_aware = base if base.tzinfo else base.replace(tzinfo=timezone.utc)
             r.trial_ends_at = base_aware + timedelta(days=days)
-        await _log(db, admin, f"bulk_{action}", "restaurant", r.id, r.name, payload)
+        log_details = {**payload, "plan": r.plan}
+        if action == "extend_trial" and r.trial_ends_at:
+            log_details["new_expiry"] = r.trial_ends_at.strftime("%Y-%m-%d")
+        await _log(db, admin, f"bulk_{action}", "restaurant", r.id, r.name, log_details)
 
     await db.commit()
     return {"message": f"Action '{action}' applied to {len(restaurants)} restaurants."}
@@ -677,6 +724,9 @@ async def update_account(
     if "password" in payload and payload["password"]:
         changes["password"] = "changed"
         user.hashed_password = hash_password(payload["password"])
+    if "role" in payload and payload["role"] != user.role:
+        changes["role"] = {"from": user.role, "to": payload["role"]}
+        user.role = payload["role"]
     if "is_active" in payload and payload["is_active"] != user.is_active:
         changes["is_active"] = {"from": user.is_active, "to": payload["is_active"]}
         user.is_active = payload["is_active"]
