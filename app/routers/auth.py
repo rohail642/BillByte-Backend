@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.db.session import get_db
 from app.models.user import User, Restaurant
-from app.models.admin_models import ActivityLog
+from app.models.admin_models import ActivityLog, Announcement
 from app.schemas.auth import (
     RegisterRequest, LoginRequest, TokenResponse,
     UserOut, UpdateProfileRequest, ProfileOut
@@ -322,3 +322,20 @@ async def remove_team_member(
     if member.id == u.id:
         raise HTTPException(400, "Cannot remove yourself")
     member.is_active = False
+
+
+@router.get("/announcements")
+async def get_active_announcements(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Announcement)
+        .where(Announcement.is_active == True)
+        .order_by(Announcement.created_at.desc())
+    )
+    announcements = result.scalars().all()
+    return [
+        {"id": a.id, "title": a.title, "body": a.body, "created_at": a.created_at}
+        for a in announcements
+    ]
