@@ -142,6 +142,10 @@ async def get_profile(current_user: User = Depends(get_current_user), db: AsyncS
     if not rest:
         raise HTTPException(404, "Restaurant not found")
     from app.routers.admin import DEFAULT_MODULES
+    days_left = None
+    if rest.trial_ends_at:
+        exp_date = (rest.trial_ends_at if rest.trial_ends_at.tzinfo else rest.trial_ends_at.replace(tzinfo=timezone.utc)).date()
+        days_left = (exp_date - datetime.now(timezone.utc).date()).days
     return ProfileOut(
         name=current_user.name,
         email=current_user.email,
@@ -162,6 +166,10 @@ async def get_profile(current_user: User = Depends(get_current_user), db: AsyncS
         table_count=rest.table_count,
         table_sections=rest.table_sections or [],
         enabled_modules=rest.enabled_modules or DEFAULT_MODULES,
+        plan=rest.plan,
+        trial_ends_at=rest.trial_ends_at,
+        days_left=days_left,
+        is_active=rest.is_active,
     )
 
 

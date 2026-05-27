@@ -86,6 +86,10 @@ class ProfileOut(BaseModel):
     table_count: int = 10
     table_sections: Optional[List[Any]] = None
     enabled_modules: Optional[dict] = None
+    plan: Optional[str] = None
+    trial_ends_at: Optional[datetime] = None
+    days_left: Optional[int] = None
+    is_active: Optional[bool] = None
 
     class Config:
         from_attributes = True
