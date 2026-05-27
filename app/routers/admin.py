@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case, exists
+from sqlalchemy import select, func, case, exists, and_
+import asyncio
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 import csv
@@ -884,44 +885,49 @@ async def admin_stats(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_super_admin),
 ):
-    total_restaurants  = await db.execute(select(func.count()).select_from(Restaurant))
-    active_restaurants = await db.execute(select(func.count()).select_from(Restaurant).where(Restaurant.is_active == True))
-    total_users        = await db.execute(select(func.count()).select_from(User).where(User.role != "super_admin"))
-    total_orders       = await db.execute(select(func.count()).select_from(Order))
-    total_revenue      = await db.execute(
-        select(func.coalesce(func.sum(Order.total_amount), 0))
-        .where(Order.payment_status == "paid")
-    )
-    plan_counts_result = await db.execute(select(Restaurant.plan, func.count()).group_by(Restaurant.plan))
-
     now = datetime.now(timezone.utc)
-    expiring_7  = await db.execute(
-        select(func.count()).select_from(Restaurant)
-        .where(Restaurant.trial_ends_at <= now + timedelta(days=7),
-               Restaurant.trial_ends_at >= now,
-               Restaurant.is_active == True)
+
+    # Single query: all restaurant counters via conditional aggregation
+    rest_stats = await db.execute(
+        select(
+            func.count().label("total"),
+            func.sum(case((Restaurant.is_active == True, 1), else_=0)).label("active"),
+            func.sum(case(
+                (and_(Restaurant.trial_ends_at <= now + timedelta(days=7),
+                      Restaurant.trial_ends_at >= now,
+                      Restaurant.is_active == True), 1), else_=0
+            )).label("exp_7"),
+            func.sum(case(
+                (and_(Restaurant.trial_ends_at <= now + timedelta(days=30),
+                      Restaurant.trial_ends_at >= now,
+                      Restaurant.is_active == True), 1), else_=0
+            )).label("exp_30"),
+            func.sum(case((Restaurant.trial_ends_at < now, 1), else_=0)).label("expired"),
+        ).select_from(Restaurant)
     )
-    expiring_30 = await db.execute(
-        select(func.count()).select_from(Restaurant)
-        .where(Restaurant.trial_ends_at <= now + timedelta(days=30),
-               Restaurant.trial_ends_at >= now,
-               Restaurant.is_active == True)
+    rs = rest_stats.one()
+
+    # Two remaining queries run concurrently
+    users_q   = db.execute(select(func.count()).select_from(User).where(User.role != "super_admin"))
+    orders_q  = db.execute(select(func.count()).select_from(Order))
+    revenue_q = db.execute(
+        select(func.coalesce(func.sum(Order.total_amount), 0)).where(Order.payment_status == "paid")
     )
-    expired = await db.execute(
-        select(func.count()).select_from(Restaurant)
-        .where(Restaurant.trial_ends_at < now)
+    plans_q   = db.execute(select(Restaurant.plan, func.count()).group_by(Restaurant.plan))
+    total_users, total_orders, total_revenue, plan_counts_result = await asyncio.gather(
+        users_q, orders_q, revenue_q, plans_q
     )
 
     return {
-        "total_restaurants":  total_restaurants.scalar(),
-        "active_restaurants": active_restaurants.scalar(),
-        "total_users":        total_users.scalar(),
-        "total_orders":       total_orders.scalar(),
-        "total_revenue":      float(total_revenue.scalar() or 0),
+        "total_restaurants":   rs.total,
+        "active_restaurants":  rs.active,
+        "total_users":         total_users.scalar(),
+        "total_orders":        total_orders.scalar(),
+        "total_revenue":       float(total_revenue.scalar() or 0),
         "restaurants_by_plan": {row[0]: row[1] for row in plan_counts_result.all()},
-        "expiring_in_7_days":  expiring_7.scalar(),
-        "expiring_in_30_days": expiring_30.scalar(),
-        "expired_trials":      expired.scalar(),
+        "expiring_in_7_days":  rs.exp_7,
+        "expiring_in_30_days": rs.exp_30,
+        "expired_trials":      rs.expired,
     }
 
 
