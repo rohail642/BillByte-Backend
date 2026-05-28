@@ -275,8 +275,19 @@ async def add_team_member(
         raise HTTPException(400, "Invalid role. Use: waiter, cashier, manager, kitchen")
 
     existing = await db.execute(select(User).where(User.email == body.email))
-    if existing.scalar_one_or_none():
-        raise HTTPException(400, "Email already in use")
+    existing_user = existing.scalar_one_or_none()
+
+    if existing_user:
+        if existing_user.restaurant_id != u.restaurant_id or existing_user.is_active:
+            raise HTTPException(400, "Email already in use")
+        # Reactivate previously removed member
+        existing_user.name = body.name
+        existing_user.role = body.role
+        existing_user.hashed_password = hash_password(body.password)
+        existing_user.is_active = True
+        await db.commit()
+        await db.refresh(existing_user)
+        return existing_user
 
     member = User(
         restaurant_id=u.restaurant_id,
