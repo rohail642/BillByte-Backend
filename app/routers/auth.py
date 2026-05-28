@@ -257,7 +257,7 @@ async def list_team(
 ):
     """List all users in the restaurant."""
     r = await db.execute(
-        select(User).where(User.restaurant_id == u.restaurant_id, User.id != u.id)
+        select(User).where(User.restaurant_id == u.restaurant_id, User.id != u.id, User.is_active == True)
         .order_by(User.name)
     )
     return r.scalars().all()
@@ -330,6 +330,7 @@ async def remove_team_member(
     if member.id == u.id:
         raise HTTPException(400, "Cannot remove yourself")
     member.is_active = False
+    await db.commit()
 
 
 @router.get("/announcements")
