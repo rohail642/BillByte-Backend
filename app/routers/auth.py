@@ -84,7 +84,7 @@ async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends
                 target_name=rest.name,
                 details={"reason": "trial_expired", "expired_at": str(rest.trial_ends_at)},
             ))
-            await db.flush()
+            await db.commit()  # commit before raise so rollback in get_db doesn't undo this
             raise HTTPException(403, "Your restaurant's license has expired. Please contact BillByte support to renew.")
 
     if rest and not rest.is_active:

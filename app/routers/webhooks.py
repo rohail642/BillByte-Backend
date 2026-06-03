@@ -12,7 +12,6 @@ Until then, use the Online Orders page to enter orders manually.
 import hmac
 import hashlib
 import json
-import random
 from datetime import date
 
 from fastapi import APIRouter, Request, HTTPException, Header
@@ -22,15 +21,12 @@ from typing import Optional
 
 from app.db.session import get_db
 from app.models.order import Order, OrderItem
+from app.models.menu import MenuItem
 from app.models.user import Restaurant
 from app.core.config import settings
 from fastapi import Depends
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
-
-
-def _make_order_number() -> str:
-    return f"BB-{date.today().strftime('%Y%m%d')}-{random.randint(1000,9999)}"
 
 
 def _calc(subtotal: float, gst_rate: float = 5.0):
@@ -44,10 +40,12 @@ async def _get_restaurant_by_id(restaurant_id: int, db: AsyncSession):
 
 
 # ── ZOMATO ────────────────────────────────────────────────────────────────────
-def _verify_zomato_signature(payload: bytes, signature: str, secret: str) -> bool:
-    """Verify Zomato webhook signature. Skips verification in dev mode (no secret configured)."""
+def _verify_zomato_signature(payload: bytes, signature: str, secret: Optional[str]) -> bool:
+    """Verify Zomato webhook signature. Only bypasses when secret is None (not configured at all)."""
+    if secret is None:
+        return True  # dev mode — secret not yet configured
     if not secret:
-        return True  # dev mode — no secret set, allow through for testing
+        return False  # empty string = misconfigured, fail closed
     expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature or '')
 
@@ -95,23 +93,25 @@ async def zomato_webhook(
 ):
     payload = await request.body()
 
-    data = json.loads(payload)
+    try:
+        data = json.loads(payload)
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(400, "Invalid JSON payload")
+
     event = data.get('event', 'order.placed')
 
     if event not in ('order.placed', 'new_order', 'order_placed'):
         return {"status": "ignored", "event": event}
 
     restaurant = await _get_restaurant_by_id(restaurant_id, db)
-    dev_mode = not (restaurant and restaurant.zomato_secret)
+    dev_mode = restaurant and restaurant.zomato_secret is None
     if not restaurant or (not restaurant.zomato_enabled and not dev_mode):
         raise HTTPException(404, "Restaurant not found or Zomato not enabled")
 
-    if not _verify_zomato_signature(payload, x_zomato_signature or '', restaurant.zomato_secret or ''):
+    if not _verify_zomato_signature(payload, x_zomato_signature or '', restaurant.zomato_secret):
         raise HTTPException(401, "Invalid Zomato signature")
 
     parsed = _parse_zomato_order(data)
-    if not restaurant:
-        raise HTTPException(404, "Restaurant not found")
 
     # Check for duplicate (idempotency)
     if parsed['platform_order_id']:
@@ -124,9 +124,16 @@ async def zomato_webhook(
         if dup.scalar_one_or_none():
             return {"status": "duplicate", "message": "Order already exists"}
 
+    # Resolve menu_item_ids by name so inventory deduction can work
+    item_names = [i['name'] for i in parsed['items']]
+    menu_r = await db.execute(
+        select(MenuItem).where(MenuItem.restaurant_id == restaurant.id, MenuItem.name.in_(item_names))
+    )
+    menu_map = {m.name.lower(): m.id for m in menu_r.scalars().all()}
+
     # Build items
     subtotal = parsed['subtotal'] or sum(i['price'] * i['quantity'] for i in parsed['items'])
-    gst, total = _calc(subtotal)
+    gst, total = _calc(subtotal, restaurant.gst_rate or 5.0)
 
     order_items = [
         OrderItem(
@@ -134,13 +141,14 @@ async def zomato_webhook(
             price=i['price'],
             quantity=i['quantity'],
             total=round(i['price'] * i['quantity'], 2),
+            menu_item_id=menu_map.get(i['name'].lower()),
         )
         for i in parsed['items']
     ]
 
     order = Order(
         restaurant_id=restaurant.id,
-        order_number=_make_order_number(),
+        order_number="",  # assigned after flush once id is known
         order_type='delivery',
         platform='zomato',
         platform_order_id=parsed['platform_order_id'],
@@ -159,6 +167,7 @@ async def zomato_webhook(
     )
     db.add(order)
     await db.flush()
+    order.order_number = f"BB-{date.today().strftime('%Y%m%d')}-{order.id}"
     await db.refresh(order, ["items"])
 
     # Deduct inventory — same as when KOT is sent manually
@@ -171,10 +180,12 @@ async def zomato_webhook(
 
 
 # ── SWIGGY ────────────────────────────────────────────────────────────────────
-def _verify_swiggy_signature(payload: bytes, signature: str, secret: str) -> bool:
-    """Verify Swiggy webhook signature. Skips verification in dev mode (no secret configured)."""
+def _verify_swiggy_signature(payload: bytes, signature: str, secret: Optional[str]) -> bool:
+    """Verify Swiggy webhook signature. Only bypasses when secret is None (not configured at all)."""
+    if secret is None:
+        return True  # dev mode — secret not yet configured
     if not secret:
-        return True  # dev mode — no secret set, allow through for testing
+        return False  # empty string = misconfigured, fail closed
     expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature or '')
 
@@ -219,23 +230,25 @@ async def swiggy_webhook(
 ):
     payload = await request.body()
 
-    data = json.loads(payload)
+    try:
+        data = json.loads(payload)
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(400, "Invalid JSON payload")
+
     event = data.get('event_type', data.get('event', 'order.placed'))
 
     if event not in ('order.placed', 'new_order', 'ORDER_PLACED'):
         return {"status": "ignored", "event": event}
 
     restaurant = await _get_restaurant_by_id(restaurant_id, db)
-    dev_mode = not (restaurant and restaurant.swiggy_secret)
+    dev_mode = restaurant and restaurant.swiggy_secret is None
     if not restaurant or (not restaurant.swiggy_enabled and not dev_mode):
         raise HTTPException(404, "Restaurant not found or Swiggy not enabled")
 
-    if not _verify_swiggy_signature(payload, x_swiggy_signature or '', restaurant.swiggy_secret or ''):
+    if not _verify_swiggy_signature(payload, x_swiggy_signature or '', restaurant.swiggy_secret):
         raise HTTPException(401, "Invalid Swiggy signature")
 
     parsed = _parse_swiggy_order(data)
-    if not restaurant:
-        raise HTTPException(404, "Restaurant not found")
 
     # Idempotency check
     if parsed['platform_order_id']:
@@ -248,8 +261,15 @@ async def swiggy_webhook(
         if dup.scalar_one_or_none():
             return {"status": "duplicate", "message": "Order already exists"}
 
+    # Resolve menu_item_ids by name so inventory deduction can work
+    item_names = [i['name'] for i in parsed['items']]
+    menu_r = await db.execute(
+        select(MenuItem).where(MenuItem.restaurant_id == restaurant.id, MenuItem.name.in_(item_names))
+    )
+    menu_map = {m.name.lower(): m.id for m in menu_r.scalars().all()}
+
     subtotal = parsed['subtotal'] or sum(i['price'] * i['quantity'] for i in parsed['items'])
-    gst, total = _calc(subtotal)
+    gst, total = _calc(subtotal, restaurant.gst_rate or 5.0)
 
     order_items = [
         OrderItem(
@@ -257,13 +277,14 @@ async def swiggy_webhook(
             price=i['price'],
             quantity=i['quantity'],
             total=round(i['price'] * i['quantity'], 2),
+            menu_item_id=menu_map.get(i['name'].lower()),
         )
         for i in parsed['items']
     ]
 
     order = Order(
         restaurant_id=restaurant.id,
-        order_number=_make_order_number(),
+        order_number="",  # assigned after flush once id is known
         order_type='delivery',
         platform='swiggy',
         platform_order_id=parsed['platform_order_id'],
@@ -282,6 +303,7 @@ async def swiggy_webhook(
     )
     db.add(order)
     await db.flush()
+    order.order_number = f"BB-{date.today().strftime('%Y%m%d')}-{order.id}"
     await db.refresh(order, ["items"])
 
     # Deduct inventory — same as when KOT is sent manually

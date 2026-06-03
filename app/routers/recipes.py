@@ -140,7 +140,7 @@ async def deduct_inventory_for_order(order_items, restaurant_id: int, order_id: 
     For each order item, find its recipe and deduct ingredients from inventory.
     """
     for order_item in order_items:
-        if not order_item.menu_item_id:
+        if not order_item.menu_item_id or order_item.cancelled_at:
             continue
 
         # Find recipe for this menu item

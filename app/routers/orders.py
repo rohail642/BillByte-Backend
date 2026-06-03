@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import List
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import random
 
 from app.db.session import get_db
@@ -67,14 +67,17 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), u:
             # Determine next KOT number for this batch of new items
             next_kot = max((i.kot_number for i in existing.items), default=0) + 1
             new_subtotal = existing.subtotal
+            new_items = []
             for it in body.items:
                 lt = round(it.price * it.quantity, 2)
                 new_subtotal += lt
-                existing.items.append(OrderItem(
+                new_item = OrderItem(
                     menu_item_id=it.menu_item_id, name=it.name,
                     price=it.price, quantity=it.quantity, total=lt,
                     kot_number=next_kot,
-                ))
+                )
+                existing.items.append(new_item)
+                new_items.append(new_item)
             disc, gst, total = _calc(new_subtotal, gst_rate, existing.discount_percent)
             existing.subtotal = round(new_subtotal, 2)
             existing.gst_amount = gst
@@ -86,6 +89,8 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), u:
             existing.kot_statuses = statuses
             existing.status = _derive_order_status(statuses)
             await db.flush()
+            from app.routers.recipes import deduct_inventory_for_order
+            await deduct_inventory_for_order(new_items, u.restaurant_id, existing.id, db)
             await db.refresh(existing, ["items"])
             return existing
 
@@ -101,7 +106,7 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), u:
     disc, gst, total = _calc(subtotal, gst_rate, body.discount_percent)
     order = Order(
         restaurant_id=u.restaurant_id,
-        order_number=_make_order_number(),
+        order_number="",  # assigned after flush once id is known
         order_type=body.order_type,
         table_number=body.table_number,
         customer_id=body.customer_id,
@@ -116,6 +121,7 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), u:
     )
     db.add(order)
     await db.flush()
+    order.order_number = f"BB-{date.today().strftime('%Y%m%d')}-{order.id}"
     await db.refresh(order, ["items"])
     return order
 
@@ -194,14 +200,17 @@ async def add_items_to_order(
     # Add new items with the next KOT number
     next_kot = max((i.kot_number for i in order.items), default=0) + 1
     new_subtotal = order.subtotal
+    new_items = []
     for it in body.items:
         lt = round(it.price * it.quantity, 2)
         new_subtotal += lt
-        order.items.append(OrderItem(
+        new_item = OrderItem(
             menu_item_id=it.menu_item_id, name=it.name,
             price=it.price, quantity=it.quantity, total=lt,
             kot_number=next_kot,
-        ))
+        )
+        order.items.append(new_item)
+        new_items.append(new_item)
 
     # Recalculate totals and surface new items to kitchen
     disc, gst, total = _calc(new_subtotal, gst_rate, order.discount_percent)
@@ -215,6 +224,8 @@ async def add_items_to_order(
     order.status = _derive_order_status(statuses)
 
     await db.flush()
+    from app.routers.recipes import deduct_inventory_for_order
+    await deduct_inventory_for_order(new_items, u.restaurant_id, order.id, db)
     await db.refresh(order, ["items"])
     return order
 
@@ -324,7 +335,12 @@ async def collect_all_for_table(
     gst_rate = rest.gst_rate if rest else 5.0
     total_collected = 0.0
 
+    from app.routers.recipes import deduct_inventory_for_order
     for order in orders:
+        # Deduct inventory for orders that went pending→paid without a KOT step
+        if order.status not in ('kot_sent', 'preparing', 'ready', 'served'):
+            await deduct_inventory_for_order(order.items, u.restaurant_id, order.id, db)
+
         disc, gst, total = _calc(order.subtotal, gst_rate, order.discount_percent)
         order.gst_amount = gst
         order.discount_amount = disc
@@ -406,7 +422,7 @@ async def get_active_tables(
 
 @router.get("/summary", tags=["Dashboard"])
 async def dashboard_summary(db: AsyncSession = Depends(get_db), u: User = Depends(get_current_user)):
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     rid = u.restaurant_id
 
     rev = await db.execute(
