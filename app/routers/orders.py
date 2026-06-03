@@ -333,6 +333,7 @@ async def collect_all_for_table(
 
     rest = await db.get(Restaurant, u.restaurant_id)
     gst_rate = rest.gst_rate if rest else 5.0
+    loyalty_on = rest.loyalty_enabled if rest and rest.loyalty_enabled is not None else True
     total_collected = 0.0
 
     from app.routers.recipes import deduct_inventory_for_order
@@ -351,7 +352,7 @@ async def collect_all_for_table(
         total_collected += total
 
         # Award loyalty points and update customer stats
-        if order.customer_id:
+        if loyalty_on and order.customer_id:
             cr = await db.execute(select(Customer).where(Customer.id == order.customer_id))
             cust = cr.scalar_one_or_none()
             if cust:
@@ -526,13 +527,14 @@ async def collect_payment(order_id: int, body: PaymentUpdate, db: AsyncSession =
         await deduct_inventory_for_order(order.items, u.restaurant_id, order.id, db)
 
     # CRM: award loyalty points and update customer stats
+    loyalty_on = rest.loyalty_enabled if rest and rest.loyalty_enabled is not None else True
     if order.customer_id:
         cr = await db.execute(select(Customer).where(Customer.id == order.customer_id))
         cust = cr.scalar_one_or_none()
         if cust:
             # Handle points redemption atomically — deduct before awarding to prevent double-dipping
             redeemed = False
-            if body.points_to_redeem > 0:
+            if loyalty_on and body.points_to_redeem > 0:
                 pts_to_redeem = body.points_to_redeem
                 if pts_to_redeem < 100:
                     raise HTTPException(400, "Minimum 100 points required to redeem")
@@ -546,8 +548,8 @@ async def collect_payment(order_id: int, body: PaymentUpdate, db: AsyncSession =
                 ))
                 redeemed = True
 
-            # Award earned points only if no redemption happened on this order
-            if not redeemed:
+            # Award earned points only if loyalty is enabled and no redemption happened
+            if loyalty_on and not redeemed:
                 net_amount = max(0, (order.subtotal or 0) - (order.discount_amount or 0))
                 pts_earned = int(net_amount // 10)
                 if pts_earned > 0:

@@ -170,6 +170,9 @@ async def get_profile(current_user: User = Depends(get_current_user), db: AsyncS
         trial_ends_at=rest.trial_ends_at,
         days_left=days_left,
         is_active=rest.is_active,
+        whatsapp_sharing=rest.whatsapp_sharing if rest.whatsapp_sharing is not None else True,
+        round_off=rest.round_off if rest.round_off is not None else False,
+        loyalty_enabled=rest.loyalty_enabled if rest.loyalty_enabled is not None else True,
     )
 
 
@@ -202,6 +205,10 @@ async def update_profile(
     if body.razorpay_key_secret is not None:  rest.razorpay_key_secret  = body.razorpay_key_secret
     if body.table_count is not None:    rest.table_count    = body.table_count
     if body.table_sections is not None: rest.table_sections = body.table_sections
+    # Billing settings
+    if body.whatsapp_sharing is not None: rest.whatsapp_sharing = body.whatsapp_sharing
+    if body.round_off is not None:        rest.round_off        = body.round_off
+    if body.loyalty_enabled is not None:  rest.loyalty_enabled  = body.loyalty_enabled
 
     await db.flush()
     from app.routers.admin import DEFAULT_MODULES
@@ -220,6 +227,9 @@ async def update_profile(
         table_count=rest.table_count,
         table_sections=rest.table_sections or [],
         enabled_modules=rest.enabled_modules or DEFAULT_MODULES,
+        whatsapp_sharing=rest.whatsapp_sharing if rest.whatsapp_sharing is not None else True,
+        round_off=rest.round_off if rest.round_off is not None else False,
+        loyalty_enabled=rest.loyalty_enabled if rest.loyalty_enabled is not None else True,
     )
 
 

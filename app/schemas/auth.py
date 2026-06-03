@@ -63,6 +63,9 @@ class UpdateProfileRequest(BaseModel):
     razorpay_key_secret: Optional[str] = None
     table_count: Optional[int] = None
     table_sections: Optional[List[Any]] = None
+    whatsapp_sharing: Optional[bool] = None
+    round_off: Optional[bool] = None
+    loyalty_enabled: Optional[bool] = None
 
 
 class ProfileOut(BaseModel):
@@ -90,6 +93,9 @@ class ProfileOut(BaseModel):
     trial_ends_at: Optional[datetime] = None
     days_left: Optional[int] = None
     is_active: Optional[bool] = None
+    whatsapp_sharing: bool = True
+    round_off: bool = False
+    loyalty_enabled: bool = True
 
     class Config:
         from_attributes = True
