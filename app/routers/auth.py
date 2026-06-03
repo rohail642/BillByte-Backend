@@ -208,7 +208,7 @@ async def update_profile(
     if body.round_off is not None:       rest.round_off       = body.round_off
     if body.loyalty_enabled is not None: rest.loyalty_enabled = body.loyalty_enabled
 
-    await db.flush()
+    await db.commit()
     from app.routers.admin import DEFAULT_MODULES
     return ProfileOut(
         name=current_user.name, email=current_user.email,
