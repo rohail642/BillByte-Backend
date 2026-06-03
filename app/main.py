@@ -15,7 +15,6 @@ from app.models import admin_models  # noqa: F401 — ensures tables are created
 async def _apply_schema_additions():
     """Idempotent column additions that create_all() won't add to existing tables."""
     stmts = [
-        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS whatsapp_sharing BOOLEAN NOT NULL DEFAULT TRUE",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS round_off BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS loyalty_enabled BOOLEAN NOT NULL DEFAULT TRUE",
     ]

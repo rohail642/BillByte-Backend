@@ -39,7 +39,6 @@ class Restaurant(Base):
     enabled_modules    = mapped_column(JSON, nullable=True)  # null = all enabled
     reminders_enabled  = mapped_column(Boolean, default=True, nullable=False, server_default='true')
     notes              = mapped_column(Text, nullable=True)
-    whatsapp_sharing   = mapped_column(Boolean, default=True,  nullable=False, server_default='true')
     round_off          = mapped_column(Boolean, default=False, nullable=False, server_default='false')
     loyalty_enabled    = mapped_column(Boolean, default=True,  nullable=False, server_default='true')
 
