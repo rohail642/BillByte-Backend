@@ -4,16 +4,30 @@ from contextlib import asynccontextmanager
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from sqlalchemy import text
 from app.core.config import settings
 from app.core.limiter import limiter
-from app.db.session import create_all_tables
+from app.db.session import create_all_tables, engine
 from app.routers import auth, menu, orders, inventory, customers, staff, reports, recipes, webhooks, admin
 from app.models import admin_models  # noqa: F401 — ensures tables are created
 
 
+async def _apply_schema_additions():
+    """Idempotent column additions that create_all() won't add to existing tables."""
+    stmts = [
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS whatsapp_sharing BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS round_off BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS loyalty_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+    ]
+    async with engine.begin() as conn:
+        for stmt in stmts:
+            await conn.execute(text(stmt))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await create_all_tables()   # auto-creates tables on first run
+    await create_all_tables()       # creates new tables on first run
+    await _apply_schema_additions() # safely adds new columns to existing tables
     yield
 
 
