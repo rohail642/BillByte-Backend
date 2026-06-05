@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import List
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
+from sqlalchemy import cast, Date as SADate
 import random
 
 from app.db.session import get_db
@@ -131,13 +132,18 @@ async def list_orders(
     status: str | None = None,
     order_type: str | None = None,
     limit: int = 50,
+    date_from: str | None = None,
+    date_to: str | None = None,
     db: AsyncSession = Depends(get_db),
     u: User = Depends(get_current_user),
 ):
-    q = (select(Order).where(Order.restaurant_id == u.restaurant_id)
-         .options(selectinload(Order.items)).order_by(Order.created_at.desc()).limit(limit))
-    if status: q = q.where(Order.status == status)
+    # Build all WHERE conditions first, then apply options/order/limit
+    q = select(Order).where(Order.restaurant_id == u.restaurant_id)
+    if status:     q = q.where(Order.status == status)
     if order_type: q = q.where(Order.order_type == order_type)
+    if date_from:  q = q.where(cast(Order.created_at, SADate) >= date.fromisoformat(date_from))
+    if date_to:    q = q.where(cast(Order.created_at, SADate) <= date.fromisoformat(date_to))
+    q = q.options(selectinload(Order.items)).order_by(Order.created_at.desc()).limit(limit)
     r = await db.execute(q)
     return r.scalars().all()
 
