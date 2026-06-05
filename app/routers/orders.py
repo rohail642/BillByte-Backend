@@ -113,6 +113,7 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), u:
         customer_id=body.customer_id,
         customer_name=body.customer_name,
         customer_phone=body.customer_phone,
+        gst_rate=gst_rate,
         subtotal=round(subtotal, 2), gst_amount=gst,
         discount_amount=disc, discount_percent=body.discount_percent,
         total_amount=total, status="pending", payment_status="unpaid",
@@ -200,8 +201,7 @@ async def add_items_to_order(
     if order.payment_status == "paid":
         raise HTTPException(400, "Cannot add items to a paid order")
 
-    rest = await db.get(Restaurant, u.restaurant_id)
-    gst_rate = rest.gst_rate if rest else 5.0
+    gst_rate = order.gst_rate  # locked at order creation — never changes
 
     # Add new items with the next KOT number
     next_kot = max((i.kot_number for i in order.items), default=0) + 1
@@ -261,8 +261,7 @@ async def remove_order_item(
     if item.cancelled_at:
         raise HTTPException(400, "Item is already cancelled")
 
-    rest = await db.get(Restaurant, u.restaurant_id)
-    gst_rate = rest.gst_rate if rest else 5.0
+    gst_rate = order.gst_rate  # locked at order creation
 
     # Soft-delete so kitchen sees the void
     item.cancelled_at = datetime.utcnow()
@@ -338,7 +337,6 @@ async def collect_all_for_table(
         raise HTTPException(404, "No unpaid orders for this table")
 
     rest = await db.get(Restaurant, u.restaurant_id)
-    gst_rate = rest.gst_rate if rest else 5.0
     loyalty_on = rest.loyalty_enabled if rest and rest.loyalty_enabled is not None else True
     total_collected = 0.0
 
@@ -348,7 +346,7 @@ async def collect_all_for_table(
         if order.status not in ('kot_sent', 'preparing', 'ready', 'served'):
             await deduct_inventory_for_order(order.items, u.restaurant_id, order.id, db)
 
-        disc, gst, total = _calc(order.subtotal, gst_rate, order.discount_percent)
+        disc, gst, total = _calc(order.subtotal, order.gst_rate, order.discount_percent)
         order.gst_amount = gst
         order.discount_amount = disc
         order.total_amount = total
@@ -516,7 +514,7 @@ async def collect_payment(order_id: int, body: PaymentUpdate, db: AsyncSession =
     prev_pay_status   = order.payment_status
 
     rest = await db.get(Restaurant, u.restaurant_id)
-    gst_rate = rest.gst_rate if rest else 5.0
+    gst_rate = order.gst_rate  # locked at order creation — immune to settings changes
     disc, gst, total = _calc(order.subtotal, gst_rate, body.discount_percent)
 
     order.discount_percent = body.discount_percent
