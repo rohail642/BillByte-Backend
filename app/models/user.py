@@ -46,6 +46,7 @@ class Restaurant(Base):
     notes              = mapped_column(Text, nullable=True)
     round_off          = mapped_column(Boolean, default=False, nullable=False, server_default='false')
     loyalty_enabled    = mapped_column(Boolean, default=True,  nullable=False, server_default='true')
+    show_gst_breakup   = mapped_column(Boolean, default=True,  nullable=False, server_default='true')
 
     users: Mapped[list["User"]] = relationship("User", back_populates="restaurant")
 

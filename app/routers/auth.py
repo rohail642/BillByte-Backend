@@ -175,6 +175,7 @@ async def get_profile(current_user: User = Depends(get_current_user), db: AsyncS
         is_active=rest.is_active,
         round_off=rest.round_off if rest.round_off is not None else False,
         loyalty_enabled=rest.loyalty_enabled if rest.loyalty_enabled is not None else True,
+        show_gst_breakup=rest.show_gst_breakup if rest.show_gst_breakup is not None else True,
     )
 
 
@@ -212,8 +213,9 @@ async def update_profile(
     if body.table_count is not None:    rest.table_count    = body.table_count
     if body.table_sections is not None: rest.table_sections = body.table_sections
     # Billing settings
-    if body.round_off is not None:       rest.round_off       = body.round_off
-    if body.loyalty_enabled is not None: rest.loyalty_enabled = body.loyalty_enabled
+    if body.round_off is not None:        rest.round_off        = body.round_off
+    if body.loyalty_enabled is not None:  rest.loyalty_enabled  = body.loyalty_enabled
+    if body.show_gst_breakup is not None: rest.show_gst_breakup = body.show_gst_breakup
 
     await db.commit()
     from app.routers.admin import DEFAULT_MODULES
@@ -237,6 +239,7 @@ async def update_profile(
         enabled_modules=rest.enabled_modules or DEFAULT_MODULES,
         round_off=rest.round_off if rest.round_off is not None else False,
         loyalty_enabled=rest.loyalty_enabled if rest.loyalty_enabled is not None else True,
+        show_gst_breakup=rest.show_gst_breakup if rest.show_gst_breakup is not None else True,
     )
 
 

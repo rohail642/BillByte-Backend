@@ -69,6 +69,7 @@ class UpdateProfileRequest(BaseModel):
     table_sections: Optional[List[Any]] = None
     round_off: Optional[bool] = None
     loyalty_enabled: Optional[bool] = None
+    show_gst_breakup: Optional[bool] = None
 
 
 class ProfileOut(BaseModel):
@@ -101,6 +102,7 @@ class ProfileOut(BaseModel):
     is_active: Optional[bool] = None
     round_off: bool = False
     loyalty_enabled: bool = True
+    show_gst_breakup: bool = True
 
     class Config:
         from_attributes = True
