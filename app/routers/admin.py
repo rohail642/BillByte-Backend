@@ -10,7 +10,7 @@ import io
 
 from app.db.session import get_db
 from app.models.user import User, Restaurant
-from app.models.order import Order
+from app.models.order import Order, OrderItem
 from app.models.menu import MenuItem
 from app.models.payment import PaymentTransaction
 from app.models.inventory import InventoryUsageLog
@@ -585,6 +585,88 @@ async def delete_all_orders(
     await _log(db, admin, "delete_all_orders", "restaurant", r.id, r.name, {"deleted_orders": int(count)})
     await db.commit()
     return {"message": f"Deleted all {int(count)} order(s) for '{r.name}'.", "deleted_orders": int(count)}
+
+
+# ── Manually add a (back-dated) bill for a restaurant ─────────────────────────
+
+@router.post("/restaurants/{restaurant_id}/orders", status_code=201)
+async def admin_create_order(
+    restaurant_id: int,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_super_admin),
+):
+    """Manually add a paid, itemized bill for a restaurant on a chosen day.
+    Totals are computed from the restaurant's GST rate and the order is dated to
+    that day so it appears in the restaurant's reports for that date. This does
+    NOT deduct inventory or award loyalty points (it is a historical record)."""
+    r = await _get_restaurant_or_404(restaurant_id, db)
+
+    # Items
+    items = []
+    subtotal = 0.0
+    for it in (payload.get("items") or []):
+        name = str(it.get("name", "")).strip()
+        try:
+            qty = int(it.get("quantity", 1))
+            price = float(it.get("price"))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Each item needs a name, a numeric price and quantity.")
+        if not name or qty < 1 or price < 0:
+            raise HTTPException(400, "Each item needs a name, quantity >= 1 and price >= 0.")
+        line_total = round(price * qty, 2)
+        subtotal += line_total
+        items.append(OrderItem(name=name, price=price, quantity=qty, total=line_total, kot_number=1))
+    if not items:
+        raise HTTPException(400, "Add at least one item.")
+
+    # Payment method
+    pay = payload.get("payment_method", "cash")
+    if pay not in ("cash", "upi", "card"):
+        raise HTTPException(400, "payment_method must be cash, upi or card.")
+
+    # Date → noon UTC of the chosen calendar day (avoids timezone edge effects)
+    day = _parse_date(payload.get("date"))
+    if not day:
+        raise HTTPException(400, "A valid date (YYYY-MM-DD) is required.")
+    created = datetime(day.year, day.month, day.day, 12, 0, 0, tzinfo=timezone.utc)
+
+    gst_rate = r.gst_rate if r.gst_rate is not None else 5.0
+    subtotal = round(subtotal, 2)
+    gst = round(subtotal * gst_rate / 100, 2)
+    total = round(subtotal + gst, 2)
+
+    order = Order(
+        restaurant_id=restaurant_id,
+        order_number="",  # assigned after flush, once id is known
+        order_type=payload.get("order_type") or "dine_in",
+        customer_name=(payload.get("customer_name") or None),
+        gst_rate=gst_rate,
+        subtotal=subtotal, gst_amount=gst, discount_amount=0.0, discount_percent=0.0,
+        total_amount=total,
+        status="paid", payment_status="paid", payment_method=pay,
+        notes=(payload.get("notes") or None),
+        created_by=admin.id,
+        kot_statuses={"1": "served"},
+        items=items,
+        created_at=created, updated_at=created,
+    )
+    db.add(order)
+    await db.flush()
+    order.order_number = f"BB-{created.strftime('%Y%m%d')}-{order.id}"
+    await _log(db, admin, "create_order", "restaurant", r.id, r.name,
+               {"order_id": order.id, "date": created.strftime("%Y-%m-%d"), "total": total})
+    await db.commit()
+    return {
+        "id": order.id,
+        "order_number": order.order_number,
+        "date": created.strftime("%Y-%m-%d"),
+        "subtotal": subtotal,
+        "gst_amount": gst,
+        "total_amount": total,
+        "payment_method": pay,
+        "item_count": len(items),
+    }
 
 
 # ── Impersonate (generate login token for owner) ──────────────────────────────
