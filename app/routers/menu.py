@@ -1,15 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete, update, func as sa_func
 from typing import List
 from io import BytesIO
 import openpyxl
 
 from app.db.session import get_db
 from app.models.menu import MenuItem, MenuCategory
+from app.models.recipe import Recipe
+from app.models.order import OrderItem
 from app.models.user import User
 from app.schemas.menu import MenuItemCreate, MenuItemUpdate, MenuItemOut, CategoryCreate, CategoryOut
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_owner
 
 _FOOD_TYPE_MAP = {
     'veg': 'veg', 'vegetarian': 'veg',
@@ -88,6 +90,34 @@ async def delete_item(item_id: int, db: AsyncSession = Depends(get_db), u: User 
     item = r.scalar_one_or_none()
     if not item: raise HTTPException(404, "Item not found")
     await db.delete(item)
+
+
+@router.delete("/all")
+async def clear_menu(db: AsyncSession = Depends(get_db), u: User = Depends(require_owner)):
+    """Owner-only: wipe the entire menu — all items AND all categories — for the
+    restaurant. Recipes for those items are removed and any order-item references
+    are detached (order history keeps its denormalized item names)."""
+    rid = u.restaurant_id
+
+    item_count = (await db.execute(
+        select(sa_func.count()).select_from(MenuItem).where(MenuItem.restaurant_id == rid)
+    )).scalar_one()
+    cat_count = (await db.execute(
+        select(sa_func.count()).select_from(MenuCategory).where(MenuCategory.restaurant_id == rid)
+    )).scalar_one()
+
+    # Remove recipes first (recipe_ingredients cascade at DB level via ondelete).
+    await db.execute(delete(Recipe).where(Recipe.restaurant_id == rid))
+    # Detach historical order lines so the FK delete below doesn't violate.
+    item_ids = (await db.execute(select(MenuItem.id).where(MenuItem.restaurant_id == rid))).scalars().all()
+    if item_ids:
+        await db.execute(
+            update(OrderItem).where(OrderItem.menu_item_id.in_(item_ids)).values(menu_item_id=None)
+        )
+    await db.execute(delete(MenuItem).where(MenuItem.restaurant_id == rid))
+    await db.execute(delete(MenuCategory).where(MenuCategory.restaurant_id == rid))
+
+    return {"deleted_items": item_count, "deleted_categories": cat_count}
 
 
 @router.post("/import-excel")
