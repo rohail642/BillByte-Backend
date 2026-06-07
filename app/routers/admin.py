@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case, exists, and_
+from sqlalchemy import select, func, case, exists, and_, delete
 import asyncio
 from typing import Optional
 from datetime import datetime, timedelta, timezone
@@ -12,6 +12,9 @@ from app.db.session import get_db
 from app.models.user import User, Restaurant
 from app.models.order import Order
 from app.models.menu import MenuItem
+from app.models.payment import PaymentTransaction
+from app.models.inventory import InventoryUsageLog
+from app.models.customer import LoyaltyTransaction
 from app.models.admin_models import ActivityLog, Announcement
 from app.core.security import require_super_admin, hash_password, create_access_token
 
@@ -550,6 +553,38 @@ async def delete_restaurant(
     await db.delete(r)
     await db.commit()
     return {"message": f"Restaurant '{name}' permanently deleted."}
+
+
+# ── Delete ALL orders for a restaurant (test-data reset) ──────────────────────
+
+@router.delete("/restaurants/{restaurant_id}/orders")
+async def delete_all_orders(
+    restaurant_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_super_admin),
+):
+    """Permanently delete every order/bill for a restaurant. Used to clear test
+    data before a restaurant goes live. Order line-items cascade automatically;
+    order-linked payment / inventory-usage / loyalty rows are removed first so
+    the FK delete succeeds (manual, non-order rows are preserved). The menu,
+    inventory stock, customers and staff are left untouched."""
+    r = await _get_restaurant_or_404(restaurant_id, db)
+
+    count = (await db.execute(
+        select(func.count()).select_from(Order).where(Order.restaurant_id == restaurant_id)
+    )).scalar_one()
+
+    order_ids = select(Order.id).where(Order.restaurant_id == restaurant_id).scalar_subquery()
+    # Detach rows that FK to these orders (no ON DELETE CASCADE on those refs).
+    await db.execute(delete(LoyaltyTransaction).where(LoyaltyTransaction.order_id.in_(order_ids)))
+    await db.execute(delete(InventoryUsageLog).where(InventoryUsageLog.order_id.in_(order_ids)))
+    await db.execute(delete(PaymentTransaction).where(PaymentTransaction.order_id.in_(order_ids)))
+    # order_items have ON DELETE CASCADE, so they go with the orders.
+    await db.execute(delete(Order).where(Order.restaurant_id == restaurant_id))
+
+    await _log(db, admin, "delete_all_orders", "restaurant", r.id, r.name, {"deleted_orders": int(count)})
+    await db.commit()
+    return {"message": f"Deleted all {int(count)} order(s) for '{r.name}'.", "deleted_orders": int(count)}
 
 
 # ── Impersonate (generate login token for owner) ──────────────────────────────
