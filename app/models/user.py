@@ -34,9 +34,10 @@ class Restaurant(Base):
     razorpay_key_id:    Mapped[str]  = mapped_column(String(200), nullable=True)
     razorpay_key_secret:Mapped[str]  = mapped_column(String(200), nullable=True)
 
-    pinelabs_enabled:        Mapped[bool] = mapped_column(Boolean, default=False)
-    pinelabs_merchant_id:    Mapped[str]  = mapped_column(String(100), nullable=True)
-    pinelabs_terminal_id:    Mapped[str]  = mapped_column(String(100), nullable=True)
+    # Pine Labs payment terminal
+    pinelabs_enabled:        Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default='false')
+    pinelabs_merchant_id:    Mapped[str]  = mapped_column(String(200), nullable=True)
+    pinelabs_terminal_id:    Mapped[str]  = mapped_column(String(200), nullable=True)
     pinelabs_security_token: Mapped[str]  = mapped_column(String(500), nullable=True)
 
     table_count: Mapped[int] = mapped_column(Integer, default=10)

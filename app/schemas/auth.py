@@ -61,6 +61,7 @@ class UpdateProfileRequest(BaseModel):
     razorpay_enabled: Optional[bool] = None
     razorpay_key_id: Optional[str] = None
     razorpay_key_secret: Optional[str] = None
+    # Pine Labs
     pinelabs_enabled: Optional[bool] = None
     pinelabs_merchant_id: Optional[str] = None
     pinelabs_terminal_id: Optional[str] = None
@@ -90,6 +91,7 @@ class ProfileOut(BaseModel):
     swiggy_restaurant_id: Optional[str] = None
     razorpay_enabled: Optional[bool] = False
     razorpay_key_id: Optional[str] = None
+    # Pine Labs
     pinelabs_enabled: Optional[bool] = False
     pinelabs_merchant_id: Optional[str] = None
     pinelabs_terminal_id: Optional[str] = None

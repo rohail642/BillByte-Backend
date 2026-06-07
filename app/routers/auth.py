@@ -203,13 +203,13 @@ async def update_profile(
     if body.swiggy_enabled is not None:       rest.swiggy_enabled       = body.swiggy_enabled
     if body.swiggy_secret is not None:        rest.swiggy_secret        = body.swiggy_secret
     if body.swiggy_restaurant_id is not None: rest.swiggy_restaurant_id = body.swiggy_restaurant_id
-    if body.razorpay_enabled is not None:         rest.razorpay_enabled         = body.razorpay_enabled
-    if body.razorpay_key_id is not None:          rest.razorpay_key_id          = body.razorpay_key_id
-    if body.razorpay_key_secret is not None:      rest.razorpay_key_secret      = body.razorpay_key_secret
-    if body.pinelabs_enabled is not None:         rest.pinelabs_enabled         = body.pinelabs_enabled
-    if body.pinelabs_merchant_id is not None:     rest.pinelabs_merchant_id     = body.pinelabs_merchant_id
-    if body.pinelabs_terminal_id is not None:     rest.pinelabs_terminal_id     = body.pinelabs_terminal_id
-    if body.pinelabs_security_token is not None:  rest.pinelabs_security_token  = body.pinelabs_security_token
+    if body.razorpay_enabled is not None:     rest.razorpay_enabled     = body.razorpay_enabled
+    if body.razorpay_key_id is not None:      rest.razorpay_key_id      = body.razorpay_key_id
+    if body.razorpay_key_secret is not None:  rest.razorpay_key_secret  = body.razorpay_key_secret
+    if body.pinelabs_enabled is not None:        rest.pinelabs_enabled        = body.pinelabs_enabled
+    if body.pinelabs_merchant_id is not None:    rest.pinelabs_merchant_id    = body.pinelabs_merchant_id
+    if body.pinelabs_terminal_id is not None:    rest.pinelabs_terminal_id    = body.pinelabs_terminal_id
+    if body.pinelabs_security_token is not None: rest.pinelabs_security_token = body.pinelabs_security_token
     if body.table_count is not None:    rest.table_count    = body.table_count
     if body.table_sections is not None: rest.table_sections = body.table_sections
     # Billing settings

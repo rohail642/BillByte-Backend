@@ -99,39 +99,38 @@ async def revenue_trend(days: int = 7, db: AsyncSession = Depends(get_db), u: Us
 async def gst_summary(
     month: int | None = None,
     year:  int | None = None,
+    date_from: str | None = None,
+    date_to:   str | None = None,
     db: AsyncSession = Depends(get_db),
     u: User = Depends(get_current_user),
 ):
-    """Monthly GST summary — CGST + SGST breakdown for filing."""
-    from datetime import date
+    """GST summary — accepts either date_from/date_to range or month/year."""
+    from datetime import date, timedelta
     today = date.today()
-    month = month or today.month
-    year  = year  or today.year
 
-    start = datetime(year, month, 1)
-    if month == 12:
-        end = datetime(year + 1, 1, 1)
+    if date_from and date_to:
+        month = date.fromisoformat(date_from).month
+        year  = date.fromisoformat(date_from).year
     else:
-        end = datetime(year, month + 1, 1)
+        month = month or today.month
+        year  = year  or today.year
 
-    r = await db.execute(
-        select(
-            Order.order_number,
-            Order.created_at,
-            Order.order_type,
-            Order.subtotal,
-            Order.gst_amount,
-            Order.total_amount,
-            Order.payment_method,
+    base = select(
+        Order.order_number, Order.created_at, Order.order_type,
+        Order.subtotal, Order.gst_amount, Order.total_amount, Order.payment_method,
+    ).where(Order.restaurant_id == u.restaurant_id, Order.payment_status == "paid")
+
+    if date_from and date_to:
+        base = base.where(
+            func.date(Order.created_at) >= date_from,
+            func.date(Order.created_at) <= date_to,
         )
-        .where(
-            Order.restaurant_id == u.restaurant_id,
-            Order.payment_status == "paid",
-            Order.created_at >= start,
-            Order.created_at < end,
-        )
-        .order_by(Order.created_at)
-    )
+    else:
+        start = datetime(year, month, 1)
+        end   = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+        base  = base.where(Order.created_at >= start, Order.created_at < end)
+
+    r = await db.execute(base.order_by(Order.created_at))
     orders = r.all()
 
     total_taxable = sum(o.subtotal or 0 for o in orders)
@@ -163,6 +162,7 @@ async def gst_summary(
             for o in orders
         ],
     }
+
 
 
 @router.get("/inventory-report")

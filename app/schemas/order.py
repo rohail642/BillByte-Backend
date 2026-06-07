@@ -57,6 +57,7 @@ class OrderOut(BaseModel):
     table_number: Optional[str]
     customer_name: Optional[str]
     customer_phone: Optional[str]
+    gst_rate: float = 5.0
     subtotal: float
     gst_amount: float
     discount_amount: float

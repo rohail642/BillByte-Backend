@@ -8,8 +8,9 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.db.session import create_all_tables, engine
-from app.routers import auth, menu, orders, inventory, customers, staff, reports, recipes, webhooks, admin
+from app.routers import auth, menu, orders, inventory, customers, staff, reports, recipes, webhooks, admin, payments
 from app.models import admin_models  # noqa: F401 — ensures tables are created
+from app.models import payment as payment_model  # noqa: F401 — ensures payment_transactions table is created
 
 
 async def _apply_schema_additions():
@@ -17,6 +18,20 @@ async def _apply_schema_additions():
     stmts = [
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS round_off BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS loyalty_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS pinelabs_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS pinelabs_merchant_id VARCHAR(200)",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS pinelabs_terminal_id VARCHAR(200)",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS pinelabs_security_token VARCHAR(500)",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS gst_rate FLOAT NOT NULL DEFAULT 5.0",
+        # Backfill gst_rate for existing orders by deriving it from stored amounts
+        """
+        UPDATE orders
+        SET gst_rate = ROUND(
+            (gst_amount / NULLIF(subtotal - discount_amount, 0) * 100)::NUMERIC,
+            1
+        )
+        WHERE gst_amount > 0 AND subtotal > discount_amount AND ABS(gst_rate - 5.0) < 0.01
+        """,
     ]
     async with engine.begin() as conn:
         for stmt in stmts:
@@ -62,6 +77,7 @@ app.include_router(reports.router,    prefix="/api")
 app.include_router(recipes.router,    prefix="/api")
 app.include_router(webhooks.router,   prefix="/api")
 app.include_router(admin.router,      prefix="/api")
+app.include_router(payments.router,   prefix="/api")
 
 
 @app.get("/", tags=["Health"])

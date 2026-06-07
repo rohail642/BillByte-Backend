@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import List
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
+from sqlalchemy import cast, Date as SADate
 import random
 
 from app.db.session import get_db
@@ -112,6 +113,7 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), u:
         customer_id=body.customer_id,
         customer_name=body.customer_name,
         customer_phone=body.customer_phone,
+        gst_rate=gst_rate,
         subtotal=round(subtotal, 2), gst_amount=gst,
         discount_amount=disc, discount_percent=body.discount_percent,
         total_amount=total, status="pending", payment_status="unpaid",
@@ -131,13 +133,18 @@ async def list_orders(
     status: str | None = None,
     order_type: str | None = None,
     limit: int = 50,
+    date_from: str | None = None,
+    date_to: str | None = None,
     db: AsyncSession = Depends(get_db),
     u: User = Depends(get_current_user),
 ):
-    q = (select(Order).where(Order.restaurant_id == u.restaurant_id)
-         .options(selectinload(Order.items)).order_by(Order.created_at.desc()).limit(limit))
-    if status: q = q.where(Order.status == status)
+    # Build all WHERE conditions first, then apply options/order/limit
+    q = select(Order).where(Order.restaurant_id == u.restaurant_id)
+    if status:     q = q.where(Order.status == status)
     if order_type: q = q.where(Order.order_type == order_type)
+    if date_from:  q = q.where(cast(Order.created_at, SADate) >= date.fromisoformat(date_from))
+    if date_to:    q = q.where(cast(Order.created_at, SADate) <= date.fromisoformat(date_to))
+    q = q.options(selectinload(Order.items)).order_by(Order.created_at.desc()).limit(limit)
     r = await db.execute(q)
     return r.scalars().all()
 
@@ -194,8 +201,7 @@ async def add_items_to_order(
     if order.payment_status == "paid":
         raise HTTPException(400, "Cannot add items to a paid order")
 
-    rest = await db.get(Restaurant, u.restaurant_id)
-    gst_rate = rest.gst_rate if rest else 5.0
+    gst_rate = order.gst_rate  # locked at order creation — never changes
 
     # Add new items with the next KOT number
     next_kot = max((i.kot_number for i in order.items), default=0) + 1
@@ -255,8 +261,7 @@ async def remove_order_item(
     if item.cancelled_at:
         raise HTTPException(400, "Item is already cancelled")
 
-    rest = await db.get(Restaurant, u.restaurant_id)
-    gst_rate = rest.gst_rate if rest else 5.0
+    gst_rate = order.gst_rate  # locked at order creation
 
     # Soft-delete so kitchen sees the void
     item.cancelled_at = datetime.utcnow()
@@ -332,7 +337,6 @@ async def collect_all_for_table(
         raise HTTPException(404, "No unpaid orders for this table")
 
     rest = await db.get(Restaurant, u.restaurant_id)
-    gst_rate = rest.gst_rate if rest else 5.0
     loyalty_on = rest.loyalty_enabled if rest and rest.loyalty_enabled is not None else True
     total_collected = 0.0
 
@@ -342,7 +346,7 @@ async def collect_all_for_table(
         if order.status not in ('kot_sent', 'preparing', 'ready', 'served'):
             await deduct_inventory_for_order(order.items, u.restaurant_id, order.id, db)
 
-        disc, gst, total = _calc(order.subtotal, gst_rate, order.discount_percent)
+        disc, gst, total = _calc(order.subtotal, order.gst_rate, order.discount_percent)
         order.gst_amount = gst
         order.discount_amount = disc
         order.total_amount = total
@@ -510,7 +514,7 @@ async def collect_payment(order_id: int, body: PaymentUpdate, db: AsyncSession =
     prev_pay_status   = order.payment_status
 
     rest = await db.get(Restaurant, u.restaurant_id)
-    gst_rate = rest.gst_rate if rest else 5.0
+    gst_rate = order.gst_rate  # locked at order creation — immune to settings changes
     disc, gst, total = _calc(order.subtotal, gst_rate, body.discount_percent)
 
     order.discount_percent = body.discount_percent

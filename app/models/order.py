@@ -18,6 +18,7 @@ class Order(Base):
     customer_name: Mapped[str] = mapped_column(String(200), nullable=True)
     customer_phone: Mapped[str] = mapped_column(String(20), nullable=True)
 
+    gst_rate: Mapped[float] = mapped_column(Float, default=5.0)  # locked at order creation
     subtotal: Mapped[float] = mapped_column(Float, default=0.0)
     gst_amount: Mapped[float] = mapped_column(Float, default=0.0)
     discount_amount: Mapped[float] = mapped_column(Float, default=0.0)
