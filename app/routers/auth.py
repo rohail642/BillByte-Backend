@@ -10,7 +10,7 @@ from app.models.user import User, Restaurant
 from app.models.admin_models import ActivityLog, Announcement
 from app.schemas.auth import (
     RegisterRequest, LoginRequest, TokenResponse,
-    UserOut, UpdateProfileRequest, ProfileOut
+    UserOut, UpdateProfileRequest, ProfileOut, ChangePasswordRequest
 )
 from app.core.security import hash_password, verify_password, create_access_token, get_current_user
 from app.core.limiter import limiter
@@ -241,6 +241,27 @@ async def update_profile(
         loyalty_enabled=rest.loyalty_enabled if rest.loyalty_enabled is not None else True,
         show_gst_breakup=rest.show_gst_breakup if rest.show_gst_breakup is not None else True,
     )
+
+
+# ── Change Password ────────────────────────────────────────────────────────────
+@router.post("/change-password", status_code=204)
+@limiter.limit("5/minute")
+async def change_password(
+    request: Request,
+    body: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set a new password after verifying the user's current password."""
+    if not verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(400, "Current password is incorrect.")
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "New password must be at least 8 characters.")
+    if verify_password(body.new_password, current_user.hashed_password):
+        raise HTTPException(400, "New password must be different from the current one.")
+    current_user.hashed_password = hash_password(body.new_password)
+    db.add(current_user)
+    await db.commit()
 
 
 # ── Team / User Management ─────────────────────────────────────────────────────
