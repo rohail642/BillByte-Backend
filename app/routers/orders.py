@@ -227,6 +227,8 @@ async def add_items_to_order(
     statuses = dict(order.kot_statuses or {})
     statuses[str(next_kot)] = 'kot_sent'
     order.kot_statuses = statuses
+    if body.notes:
+        order.notes = body.notes
     order.status = _derive_order_status(statuses)
 
     await db.flush()
