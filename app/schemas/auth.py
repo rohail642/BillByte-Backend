@@ -1,14 +1,22 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, List, Any
 from datetime import datetime
 
+from app.core.sanitize import SafeStr, SafeOptStr
+from app.core.validators import validate_password
+
 
 class RegisterRequest(BaseModel):
-    name: str
+    name: SafeStr
     email: EmailStr
     password: str
-    restaurant_name: str
-    phone: Optional[str] = None
+    restaurant_name: SafeStr
+    phone: SafeOptStr = None
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return validate_password(v)
 
 
 class LoginRequest(BaseModel):
@@ -19,6 +27,11 @@ class LoginRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return validate_password(v)
 
 
 class TokenResponse(BaseModel):
@@ -48,13 +61,13 @@ class UserOut(BaseModel):
 
 
 class UpdateProfileRequest(BaseModel):
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    restaurant_name: Optional[str] = None
-    address: Optional[str] = None
-    city: Optional[str] = None
-    gstin: Optional[str] = None
-    fssai: Optional[str] = None
+    name: SafeOptStr = None
+    phone: SafeOptStr = None
+    restaurant_name: SafeOptStr = None
+    address: SafeOptStr = None
+    city: SafeOptStr = None
+    gstin: SafeOptStr = None
+    fssai: SafeOptStr = None
     gst_rate: Optional[float] = None
     # Integrations
     zomato_enabled: Optional[bool] = None

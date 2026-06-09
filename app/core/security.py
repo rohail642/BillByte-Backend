@@ -58,6 +58,16 @@ async def get_current_user(
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
+    # Token revocation: a token minted before the user's last password change /
+    # forced logout carries an older token_version and is rejected here.
+    token_ver = payload.get("token_version", 0)
+    if token_ver != (user.token_version or 0):
+        raise HTTPException(
+            status_code=401,
+            detail="Session expired. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Admin impersonation: inject restaurant_id + role from token, skip suspension check
     # Expunge first so SQLAlchemy does NOT track or commit these changes to the DB
     if payload.get("impersonate"):

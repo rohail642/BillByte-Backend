@@ -74,6 +74,18 @@ Payment is collected via `PATCH /api/orders/{id}/pay` which calculates GST from 
 | `ZOMATO_WEBHOOK_SECRET` | Global fallback (per-restaurant secret preferred) |
 | `SWIGGY_WEBHOOK_SECRET` | Global fallback (per-restaurant secret preferred) |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Payment gateway |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | JWT lifetime, default 720 (12h). Keep short — do not set multi-week values. |
+| `DEBUG` | `true` in local dev only. Relaxes the `SECRET_KEY` placeholder check and enables the dev-only webhook test endpoint. |
+| `EXPOSE_DOCS` | `true` serves `/docs`, `/redoc`, `/openapi.json`. Keep **false/unset in production** so the API surface isn't published anonymously. |
+
+## Security model (post-pentest hardening, 2026-06)
+
+- **Input sanitization**: free-text fields use `SafeStr`/`SafeOptStr` from `app/core/sanitize.py`, which strip HTML at the schema boundary (defense-in-depth vs stored XSS). Apply these to any new user-supplied string field.
+- **Password policy**: `app/core/validators.py::validate_password` (≥8 chars, upper/lower/digit, blocklist). Enforced on register, change-password, and team-member create/update.
+- **Token revocation**: `User.token_version` is embedded in the JWT and checked in `get_current_user`. Bump it (`+= 1`) whenever you invalidate a user's sessions (password change, forced logout, deactivation).
+- **`SECRET_KEY`** must be a strong random value in production; the app refuses to start with the placeholder unless `DEBUG=true`.
+- **Proxy headers**: the start command passes `--proxy-headers --forwarded-allow-ips='*'` so per-IP rate limiting (slowapi) and audit-log IPs see the real client behind Railway's edge.
+- **Security headers + CORS**: added in `app/main.py`. CSP is strict (`default-src 'none'`) unless docs are exposed.
 
 ## Key design decisions
 

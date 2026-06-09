@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -14,6 +14,8 @@ from app.schemas.auth import (
 )
 from app.core.security import hash_password, verify_password, create_access_token, get_current_user
 from app.core.limiter import limiter
+from app.core.sanitize import SafeStr, SafeOptStr
+from app.core.validators import validate_password
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -44,7 +46,7 @@ async def register(request: Request, body: RegisterRequest, db: AsyncSession = D
     db.add(user)
     await db.flush()
 
-    token = create_access_token({"sub": str(user.id), "restaurant_id": str(restaurant.id)})
+    token = create_access_token({"sub": str(user.id), "restaurant_id": str(restaurant.id), "token_version": user.token_version or 0})
     days_left = None
     if restaurant.trial_ends_at:
         exp_date = (restaurant.trial_ends_at if restaurant.trial_ends_at.tzinfo else restaurant.trial_ends_at.replace(tzinfo=timezone.utc)).date()
@@ -90,7 +92,7 @@ async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends
     if rest and not rest.is_active:
         raise HTTPException(403, "Restaurant is suspended. Please contact BillByte support.")
 
-    token = create_access_token({"sub": str(user.id), "restaurant_id": str(user.restaurant_id)})
+    token = create_access_token({"sub": str(user.id), "restaurant_id": str(user.restaurant_id), "token_version": user.token_version or 0})
 
     # Log super admin login
     if user.role == "super_admin":
@@ -243,6 +245,49 @@ async def update_profile(
     )
 
 
+# ── Printer config (restaurant-wide, owner-configured, shared to all devices) ───
+class PrinterEntryIn(BaseModel):
+    name: SafeOptStr = ""
+    type: SafeOptStr = "network"
+    ip: SafeOptStr = ""
+    usbName: SafeOptStr = ""
+    categories: List[int] = []
+
+
+class PrinterConfigIn(BaseModel):
+    printers: List[PrinterEntryIn] = []
+    billPrinter: Optional[PrinterEntryIn] = None
+
+
+@router.get("/printer-config")
+async def get_printer_config(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Any authenticated device (incl. waiter phones) reads the shared config."""
+    rest = await db.get(Restaurant, current_user.restaurant_id)
+    if not rest:
+        raise HTTPException(404, "Restaurant not found")
+    return rest.printer_config or {"printers": [], "billPrinter": None}
+
+
+@router.put("/printer-config")
+async def save_printer_config(
+    body: PrinterConfigIn,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Only the owner/manager configures the restaurant's printers."""
+    if current_user.role not in ("owner", "manager"):
+        raise HTTPException(403, "Only the owner can configure printers")
+    rest = await db.get(Restaurant, current_user.restaurant_id)
+    if not rest:
+        raise HTTPException(404, "Restaurant not found")
+    rest.printer_config = body.model_dump()
+    await db.commit()
+    return rest.printer_config
+
+
 # ── Change Password ────────────────────────────────────────────────────────────
 @router.post("/change-password", status_code=204)
 @limiter.limit("5/minute")
@@ -260,6 +305,8 @@ async def change_password(
     if verify_password(body.new_password, current_user.hashed_password):
         raise HTTPException(400, "New password must be different from the current one.")
     current_user.hashed_password = hash_password(body.new_password)
+    # Revoke every previously-issued token for this user.
+    current_user.token_version = (current_user.token_version or 0) + 1
     db.add(current_user)
     await db.commit()
 
@@ -269,10 +316,15 @@ from app.core.security import require_role
 from app.core.security import hash_password
 
 class TeamMemberCreate(BaseModel):
-    name: str
-    email: str
+    name: SafeStr
+    email: EmailStr
     password: str
-    role: str = "waiter"  # waiter|cashier|manager
+    role: str = "waiter"  # waiter|cashier|manager|kitchen
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return validate_password(v)
 
 class TeamMemberOut(BaseModel):
     id: int
@@ -285,10 +337,15 @@ class TeamMemberOut(BaseModel):
         from_attributes = True
 
 class TeamMemberUpdate(BaseModel):
-    name: Optional[str] = None
+    name: SafeOptStr = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, v):
+        return validate_password(v) if v is not None else v
 
 
 @router.get("/team", response_model=List[TeamMemberOut])
@@ -362,7 +419,12 @@ async def update_team_member(
     if body.name is not None:     member.name      = body.name
     if body.role is not None:     member.role      = body.role
     if body.is_active is not None: member.is_active = body.is_active
-    if body.password is not None: member.hashed_password = hash_password(body.password)
+    if body.password is not None:
+        member.hashed_password = hash_password(body.password)
+        member.token_version = (member.token_version or 0) + 1  # revoke old sessions
+    # Deactivating a member should also kill their active sessions
+    if body.is_active is False:
+        member.token_version = (member.token_version or 0) + 1
 
     return member
 

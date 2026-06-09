@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from slowapi import _rate_limit_exceeded_handler
@@ -23,6 +23,8 @@ async def _apply_schema_additions():
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS pinelabs_terminal_id VARCHAR(200)",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS pinelabs_security_token VARCHAR(500)",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS gst_rate FLOAT NOT NULL DEFAULT 5.0",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS printer_config JSONB",
         # Backfill gst_rate for existing orders by deriving it from stored amounts
         """
         UPDATE orders
@@ -45,17 +47,45 @@ async def lifespan(app: FastAPI):
     yield
 
 
+# Interactive docs + OpenAPI schema are disabled unless EXPOSE_DOCS is set
+# (A05: don't publish the full attack surface to unauthenticated users in prod).
+_docs_enabled = settings.EXPOSE_DOCS or settings.DEBUG
+
 app = FastAPI(
     title="BillByte API",
     version="1.0.0",
     description="Restaurant OS backend — FastAPI + PostgreSQL (Supabase)",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
     lifespan=lifespan,
 )
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# ── SECURITY HEADERS ────────────────────────────────────────────────────────────
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+    # This is a JSON API; lock down framing/scripts. Swagger UI (when docs are
+    # enabled in dev) needs 'unsafe-inline' + CDN, so relax CSP only then.
+    if _docs_enabled:
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; img-src 'self' data: https://fastapi.tiangolo.com; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; frame-ancestors 'none'"
+        )
+    else:
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    return response
+
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(

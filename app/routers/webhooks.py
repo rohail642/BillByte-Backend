@@ -315,12 +315,15 @@ async def swiggy_webhook(
     return {"status": "success", "order_number": order.order_number}
 
 
-# ── TEST ENDPOINT (remove in production) ─────────────────────────────────────
-@router.post("/test")
-async def test_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    """
-    Test endpoint to simulate an incoming order.
-    POST /api/webhooks/test with body: {"platform": "zomato", "customer_name": "Test"}
-    """
-    data = await request.json()
-    return {"status": "test received", "data": data}
+# ── TEST ENDPOINT (dev only) ─────────────────────────────────────────────────
+# Only registered when DEBUG/EXPOSE_DOCS is on, so it is never reachable in
+# production. It echoes the posted JSON and never fetches any URL (no SSRF).
+if settings.DEBUG or settings.EXPOSE_DOCS:
+    @router.post("/test")
+    async def test_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+        """
+        Test endpoint to simulate an incoming order.
+        POST /api/webhooks/test with body: {"platform": "zomato", "customer_name": "Test"}
+        """
+        data = await request.json()
+        return {"status": "test received", "data": data}

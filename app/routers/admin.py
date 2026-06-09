@@ -683,6 +683,7 @@ async def impersonate_restaurant(
         "restaurant_id": str(restaurant_id),
         "role_override": "owner",
         "impersonate": True,
+        "token_version": admin.token_version or 0,
     })
     await _log(db, admin, "impersonate", "restaurant", r.id, r.name, {"admin": admin.email})
     await db.commit()
