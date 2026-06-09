@@ -1,24 +1,26 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
+from app.core.sanitize import SafeStr, SafeOptStr
+
 
 class CustomerCreate(BaseModel):
-    name: str
-    phone: str
-    email: Optional[str] = None
-    notes: Optional[str] = None
+    name: SafeStr
+    phone: SafeStr
+    email: SafeOptStr = None
+    notes: SafeOptStr = None
 
 
 class CustomerUpdate(BaseModel):
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    notes: Optional[str] = None
+    name: SafeOptStr = None
+    phone: SafeOptStr = None
+    email: SafeOptStr = None
+    notes: SafeOptStr = None
 
 
 class RedeemPointsRequest(BaseModel):
-    points: int
+    points: int = Field(ge=0)
 
 
 class CustomerOut(BaseModel):

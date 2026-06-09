@@ -42,6 +42,10 @@ class Restaurant(Base):
 
     table_count: Mapped[int] = mapped_column(Integer, default=10)
     table_sections = mapped_column(JSON, nullable=True)
+    # Restaurant-wide KOT/bill printer setup, configured by the owner and shared
+    # to every device (waiter phones included) so KOTs print to the same printer.
+    # Shape: { "printers": [{name,type,ip,usbName,categories[]}], "billPrinter": {...} }
+    printer_config = mapped_column(JSON, nullable=True)
     enabled_modules    = mapped_column(JSON, nullable=True)  # null = all enabled
     reminders_enabled  = mapped_column(Boolean, default=True, nullable=False, server_default='true')
     notes              = mapped_column(Text, nullable=True)
@@ -63,6 +67,9 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(500))
     role: Mapped[str] = mapped_column(String(20), default="owner")  # owner|manager|cashier|waiter
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Bumped on password change / forced logout — old JWTs carrying a lower
+    # token_version are rejected by get_current_user (token revocation).
+    token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     restaurant: Mapped["Restaurant"] = relationship("Restaurant", back_populates="users")

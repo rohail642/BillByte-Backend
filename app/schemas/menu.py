@@ -1,9 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
+
+from app.core.sanitize import SafeStr, SafeOptStr
 
 
 class CategoryCreate(BaseModel):
-    name: str
+    name: SafeStr
     sort_order: int = 0
 
 
@@ -18,10 +20,10 @@ class CategoryOut(BaseModel):
 
 
 class MenuItemCreate(BaseModel):
-    name: str
-    price: float
+    name: SafeStr
+    price: float = Field(ge=0, le=1_000_000)
     category_id: Optional[int] = None
-    description: Optional[str] = None
+    description: SafeOptStr = None
     emoji: str = "🍽️"
     food_type: str = "veg"
     is_active: bool = True
@@ -29,10 +31,10 @@ class MenuItemCreate(BaseModel):
 
 
 class MenuItemUpdate(BaseModel):
-    name: Optional[str] = None
-    price: Optional[float] = None
+    name: SafeOptStr = None
+    price: Optional[float] = Field(default=None, ge=0, le=1_000_000)
     category_id: Optional[int] = None
-    description: Optional[str] = None
+    description: SafeOptStr = None
     emoji: Optional[str] = None
     food_type: Optional[str] = None
     is_active: Optional[bool] = None

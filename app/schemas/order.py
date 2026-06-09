@@ -2,24 +2,26 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
+from app.core.sanitize import SafeStr, SafeOptStr
+
 
 class OrderItemCreate(BaseModel):
     menu_item_id: Optional[int] = None
-    name: str
-    price: float
-    quantity: int = 1
-    notes: Optional[str] = None
+    name: SafeStr
+    price: float = Field(ge=0, le=1_000_000)
+    quantity: int = Field(default=1, ge=1, le=100_000)
+    notes: SafeOptStr = None
 
 
 class OrderCreate(BaseModel):
     order_type: str = "dine_in"
-    table_number: Optional[str] = None
+    table_number: SafeOptStr = None
     customer_id: Optional[int] = None
-    customer_name: Optional[str] = None
-    customer_phone: Optional[str] = None
-    items: List[OrderItemCreate]
+    customer_name: SafeOptStr = None
+    customer_phone: SafeOptStr = None
+    items: List[OrderItemCreate] = Field(min_length=1)
     discount_percent: float = Field(default=0.0, ge=0, le=100)
-    notes: Optional[str] = None
+    notes: SafeOptStr = None
     platform: Optional[str] = None
     platform_order_id: Optional[str] = None
 
@@ -31,7 +33,7 @@ class OrderStatusUpdate(BaseModel):
 class PaymentUpdate(BaseModel):
     payment_method: str
     discount_percent: float = Field(default=0.0, ge=0, le=100)
-    points_to_redeem: int = 0
+    points_to_redeem: int = Field(default=0, ge=0)
 
 
 class OrderItemOut(BaseModel):
