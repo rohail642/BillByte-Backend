@@ -26,9 +26,10 @@ class MenuItem(Base):
     description: Mapped[str] = mapped_column(Text, nullable=True)
     price: Mapped[float] = mapped_column(Float)
     emoji: Mapped[str] = mapped_column(String(10), default="🍽️")
-    food_type: Mapped[str] = mapped_column(String(20), default="veg")  # veg|non_veg|vegan
+    food_type: Mapped[str] = mapped_column(String(20), default="veg")  # veg|non_veg|egg|vegan|na
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    stock_qty: Mapped[int] = mapped_column(Integer, nullable=True)  # NULL = stock not tracked
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

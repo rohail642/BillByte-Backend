@@ -268,6 +268,12 @@ async def remove_order_item(
     # Soft-delete so kitchen sees the void
     item.cancelled_at = datetime.utcnow()
     order.subtotal = round(order.subtotal - item.total, 2)
+
+    # Fired items already deducted per-item stock — put it back
+    if order.status in _KOT_PRIORITY:
+        from app.routers.recipes import restore_menu_stock
+        await restore_menu_stock(item.menu_item_id, item.quantity, u.restaurant_id, db)
+
     await db.flush()
 
     # Auto-cancel if no active items remain

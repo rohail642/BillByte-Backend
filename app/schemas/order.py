@@ -36,6 +36,30 @@ class PaymentUpdate(BaseModel):
     points_to_redeem: int = Field(default=0, ge=0)
 
 
+class CancelItemRequest(BaseModel):
+    reason_code: str = Field(..., description="wrong_order|changed_mind|stock_out|quality_issue|other")
+    reason_note: Optional[str] = None
+    manager_pin: Optional[str] = None
+    quantity: Optional[int] = Field(default=None, ge=1, description="Number of units to cancel. Defaults to full item quantity.")
+
+
+class CancelItemResponse(BaseModel):
+    success: bool
+    requires_approval: bool = False
+    cancellation_event_id: Optional[int] = None
+    message: str
+    station_notified: bool = False
+
+
+class ManagerPinSetup(BaseModel):
+    current_pin: Optional[str] = None
+    new_pin: str = Field(..., min_length=4, max_length=20)
+
+
+class ManagerPinVerify(BaseModel):
+    pin: str
+
+
 class OrderItemOut(BaseModel):
     id: int
     menu_item_id: Optional[int]

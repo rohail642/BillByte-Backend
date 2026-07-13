@@ -5,6 +5,8 @@ from app.models.inventory import InventoryItem, PurchaseOrder, InventoryUsageLog
 from app.models.customer import Customer, LoyaltyTransaction
 from app.models.staff import Staff, AttendanceLog
 from app.models.recipe import Recipe, RecipeIngredient
+from app.models.cancellation import CancellationEvent
+from app.models.telegram import TelegramLinkToken, TelegramDeliveryLog
 
 __all__ = [
     "User", "Restaurant", "MenuItem", "MenuCategory",
@@ -13,4 +15,6 @@ __all__ = [
     "Customer", "LoyaltyTransaction",
     "Staff", "AttendanceLog",
     "Recipe", "RecipeIngredient",
+    "CancellationEvent",
+    "TelegramLinkToken", "TelegramDeliveryLog",
 ]

@@ -1,4 +1,4 @@
-from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Float, JSON, Text
+from sqlalchemy import String, Boolean, Integer, BigInteger, ForeignKey, DateTime, Float, JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.session import Base
@@ -53,6 +53,10 @@ class Restaurant(Base):
     loyalty_enabled    = mapped_column(Boolean, default=True,  nullable=False, server_default='true')
     show_gst_breakup   = mapped_column(Boolean, default=True,  nullable=False, server_default='true')
 
+    # Manager PIN for authorising cancellations and other sensitive operations.
+    # Set by the owner in Settings. Null = PIN not configured (cancellations blocked).
+    manager_pin: Mapped[str] = mapped_column(String(128), nullable=True)
+
     users: Mapped[list["User"]] = relationship("User", back_populates="restaurant")
 
 
@@ -71,5 +75,13 @@ class User(Base):
     # token_version are rejected by get_current_user (token revocation).
     token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # ── Telegram daily-report link (see app/routers/telegram.py) ──
+    telegram_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=True, index=True)
+    telegram_username: Mapped[str] = mapped_column(String(64), nullable=True)
+    telegram_linked_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=True)
+    telegram_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default='false')
+    last_report_sent_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_delivery_status: Mapped[str] = mapped_column(String(200), nullable=True)
 
     restaurant: Mapped["Restaurant"] = relationship("Restaurant", back_populates="users")

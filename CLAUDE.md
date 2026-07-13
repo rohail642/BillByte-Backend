@@ -76,6 +76,9 @@ Payment is collected via `PATCH /api/orders/{id}/pay` which calculates GST from 
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Payment gateway |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | JWT lifetime, default 720 (12h). Keep short — do not set multi-week values. |
 | `DEBUG` | `true` in local dev only. Relaxes the `SECRET_KEY` placeholder check and enables the dev-only webhook test endpoint. |
+| `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather. Empty = Telegram daily reports disabled. See `TELEGRAM_REPORTS.md`. |
+| `TELEGRAM_WEBHOOK_SECRET` | Random string verified on `/api/telegram/webhook` calls (set via setWebhook). |
+| `REPORT_SEND_HOUR` / `REPORT_SEND_MINUTE` / `TIMEZONE` | Nightly report time, default 23:00 Asia/Kolkata. |
 | `EXPOSE_DOCS` | `true` serves `/docs`, `/redoc`, `/openapi.json`. Keep **false/unset in production** so the API surface isn't published anonymously. |
 
 ## Security model (post-pentest hardening, 2026-06)

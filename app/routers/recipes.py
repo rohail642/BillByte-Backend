@@ -143,6 +143,14 @@ async def deduct_inventory_for_order(order_items, restaurant_id: int, order_id: 
         if not order_item.menu_item_id or order_item.cancelled_at:
             continue
 
+        # Direct per-item stock counter (independent of recipes)
+        mi_r = await db.execute(
+            select(MenuItem).where(MenuItem.id == order_item.menu_item_id, MenuItem.restaurant_id == restaurant_id)
+        )
+        menu_item = mi_r.scalar_one_or_none()
+        if menu_item and menu_item.stock_qty is not None:
+            menu_item.stock_qty = max(0, menu_item.stock_qty - order_item.quantity)
+
         # Find recipe for this menu item
         r = await db.execute(
             select(Recipe)
@@ -173,3 +181,15 @@ async def deduct_inventory_for_order(order_items, restaurant_id: int, order_id: 
                 order_id=order_id,
                 notes=f"Used in order #{order_item.order_id} — {order_item.name} ×{order_item.quantity}",
             ))
+
+
+async def restore_menu_stock(menu_item_id: int | None, quantity: int, restaurant_id: int, db: AsyncSession):
+    """Add back per-item stock when a fired order item is cancelled."""
+    if not menu_item_id or quantity <= 0:
+        return
+    r = await db.execute(
+        select(MenuItem).where(MenuItem.id == menu_item_id, MenuItem.restaurant_id == restaurant_id)
+    )
+    menu_item = r.scalar_one_or_none()
+    if menu_item and menu_item.stock_qty is not None:
+        menu_item.stock_qty += quantity

@@ -28,6 +28,7 @@ class MenuItemCreate(BaseModel):
     food_type: str = "veg"
     is_active: bool = True
     sort_order: int = 0
+    stock_qty: Optional[int] = Field(default=None, ge=0, le=1_000_000)
 
 
 class MenuItemUpdate(BaseModel):
@@ -39,6 +40,7 @@ class MenuItemUpdate(BaseModel):
     food_type: Optional[str] = None
     is_active: Optional[bool] = None
     is_available: Optional[bool] = None
+    stock_qty: Optional[int] = Field(default=None, ge=0, le=1_000_000)  # explicit null = stop tracking
 
 
 class MenuItemOut(BaseModel):
@@ -51,6 +53,7 @@ class MenuItemOut(BaseModel):
     food_type: str
     is_active: bool
     is_available: bool
+    stock_qty: Optional[int]
     sort_order: int
 
     class Config:

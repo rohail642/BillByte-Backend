@@ -12,6 +12,7 @@ from app.schemas.auth import (
     RegisterRequest, LoginRequest, TokenResponse,
     UserOut, UpdateProfileRequest, ProfileOut, ChangePasswordRequest
 )
+from app.schemas.order import ManagerPinSetup, ManagerPinVerify
 from app.core.security import hash_password, verify_password, create_access_token, get_current_user
 from app.core.limiter import limiter
 from app.core.sanitize import SafeStr, SafeOptStr
@@ -445,6 +446,50 @@ async def remove_team_member(
         raise HTTPException(400, "Cannot remove yourself")
     member.is_active = False
     await db.commit()
+
+
+# ── Manager PIN ─────────────────────────────────────────────────────────────────
+@router.put("/manager-pin")
+async def set_manager_pin(
+    body: ManagerPinSetup,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set or change the manager PIN. Only the owner can set this."""
+    if current_user.role != "owner":
+        raise HTTPException(403, "Only the owner can set the manager PIN")
+
+    rest = await db.get(Restaurant, current_user.restaurant_id)
+    if not rest:
+        raise HTTPException(404, "Restaurant not found")
+
+    # If changing an existing PIN, verify current PIN first
+    if rest.manager_pin:
+        if not body.current_pin:
+            raise HTTPException(400, "Current PIN is required to change the manager PIN")
+        if not verify_password(body.current_pin, rest.manager_pin):
+            raise HTTPException(403, "Current PIN is incorrect")
+
+    rest.manager_pin = hash_password(body.new_pin)
+    await db.flush()
+    return {"message": "Manager PIN updated successfully"}
+
+
+@router.post("/verify-manager-pin")
+async def verify_manager_pin(
+    body: ManagerPinVerify,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify the manager PIN for an operation. Returns success/failure."""
+    rest = await db.get(Restaurant, current_user.restaurant_id)
+    if not rest or not rest.manager_pin:
+        raise HTTPException(404, "No manager PIN configured")
+
+    if not verify_password(body.pin, rest.manager_pin):
+        raise HTTPException(403, "Invalid manager PIN")
+
+    return {"valid": True}
 
 
 @router.get("/announcements")

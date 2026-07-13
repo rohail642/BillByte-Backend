@@ -26,6 +26,26 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
 
+    # ── Telegram daily reports ────────────────────────────────────────────────
+    # Bot token from @BotFather. Empty = feature disabled (scheduler doesn't
+    # start, webhook returns 503, Settings card shows "not configured").
+    TELEGRAM_BOT_TOKEN: str = ""
+    # Bot username WITHOUT the @ (e.g. "BillByteReportsBot") — used to build
+    # t.me deep links. If empty, it is fetched once from getMe and cached.
+    TELEGRAM_BOT_USERNAME: str = ""
+    # Random string passed to setWebhook and verified on every webhook call
+    # via the X-Telegram-Bot-Api-Secret-Token header. Required for webhook mode.
+    TELEGRAM_WEBHOOK_SECRET: str = ""
+    # Dev fallback: long-poll getUpdates instead of a public webhook. Never
+    # enable in production alongside a webhook (Telegram allows only one).
+    TELEGRAM_USE_POLLING: bool = False
+    # When the nightly report goes out, in TIMEZONE local time.
+    REPORT_SEND_HOUR: int = 23
+    REPORT_SEND_MINUTE: int = 0
+    TIMEZONE: str = "Asia/Kolkata"
+    # Comma list of extra attachments per report: "pdf,csv", "csv", or "" (text only)
+    REPORT_ATTACHMENTS: str = "pdf,csv"
+
     @property
     def origins_list(self) -> List[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

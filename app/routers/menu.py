@@ -18,6 +18,7 @@ _FOOD_TYPE_MAP = {
     'non_veg': 'non_veg', 'non-veg': 'non_veg', 'nonveg': 'non_veg',
     'non vegetarian': 'non_veg', 'non-vegetarian': 'non_veg',
     'vegan': 'vegan',
+    'egg': 'egg', 'eggetarian': 'egg', 'contains egg': 'egg',
 }
 
 router = APIRouter(prefix="/menu", tags=["Menu"])
