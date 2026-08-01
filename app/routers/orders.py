@@ -448,6 +448,15 @@ async def dashboard_summary(db: AsyncSession = Depends(get_db), u: User = Depend
     pending = await db.execute(
         select(func.count(Order.id)).where(Order.restaurant_id == rid, Order.status == "pending")
     )
+    # Active-in-kitchen badge for the Topbar. Counting here (plus the two most
+    # recent order numbers for the notification subtitle) means the Topbar no
+    # longer has to poll the full order list just to render a number.
+    kot_q = (Order.restaurant_id == rid, Order.status == "kot_sent", Order.payment_status != "paid")
+    kot_cnt = await db.execute(select(func.count(Order.id)).where(*kot_q))
+    kot_recent = await db.execute(
+        select(Order.order_number).where(*kot_q).order_by(Order.created_at.desc()).limit(2)
+    )
+
     revenue = rev.scalar()
     orders = cnt.scalar()
     return {
@@ -455,6 +464,8 @@ async def dashboard_summary(db: AsyncSession = Depends(get_db), u: User = Depend
         "today_orders": orders,
         "avg_bill": round(revenue / orders, 2) if orders else 0,
         "pending_orders": pending.scalar(),
+        "kot_pending": kot_cnt.scalar(),
+        "kot_pending_numbers": list(kot_recent.scalars().all()),
     }
 
 
