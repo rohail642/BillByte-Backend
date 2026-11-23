@@ -9,7 +9,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.db.session import create_all_tables, engine
-from app.routers import auth, menu, orders, inventory, customers, staff, reports, recipes, webhooks, admin, payments, cancellations, telegram
+from app.routers import auth, menu, orders, inventory, customers, staff, reports, recipes, webhooks, admin, payments, cancellations, telegram, table_ordering
 from app.services import telegram as telegram_service
 from app.services.report_scheduler import start_report_scheduler, stop_report_scheduler
 from app.models import admin_models  # noqa: F401 — ensures tables are created
@@ -40,6 +40,14 @@ async def _apply_schema_additions():
         "CREATE INDEX IF NOT EXISTS ix_users_telegram_chat_id ON users (telegram_chat_id)",
         # Per-menu-item stock counter (NULL = not tracked)
         "ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_qty INTEGER",
+        # QR table self-ordering (table_order_requests itself comes from create_all)
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS qr_ordering_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS qr_auto_accept BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS qr_token_version INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS upi_vpa VARCHAR(100)",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS paid_leaves_per_month INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE staff ADD COLUMN IF NOT EXISTS weekly_off INTEGER",
+        "ALTER TABLE staff ADD COLUMN IF NOT EXISTS notes VARCHAR(500)",
         # Backfill gst_rate for existing orders by deriving it from stored amounts
         """
         UPDATE orders
@@ -154,6 +162,8 @@ app.include_router(admin.router,      prefix="/api")
 app.include_router(payments.router,   prefix="/api")
 app.include_router(cancellations.router, prefix="/api")
 app.include_router(telegram.router,   prefix="/api")
+app.include_router(table_ordering.public_router, prefix="/api")
+app.include_router(table_ordering.staff_router,  prefix="/api")
 
 
 @app.get("/", tags=["Health"])

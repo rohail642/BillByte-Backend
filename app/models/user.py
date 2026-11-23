@@ -57,6 +57,13 @@ class Restaurant(Base):
     # Set by the owner in Settings. Null = PIN not configured (cancellations blocked).
     manager_pin: Mapped[str] = mapped_column(String(128), nullable=True)
 
+    # QR table self-ordering (app/routers/table_ordering.py)
+    qr_ordering_enabled = mapped_column(Boolean, default=False, nullable=False, server_default='false')
+    qr_auto_accept      = mapped_column(Boolean, default=False, nullable=False, server_default='false')
+    qr_token_version    = mapped_column(Integer, default=0, nullable=False, server_default='0')
+    upi_vpa: Mapped[str] = mapped_column(String(100), nullable=True)  # e.g. cafe@okhdfc — for upi:// pay links
+    paid_leaves_per_month = mapped_column(Integer, default=0, nullable=False, server_default='0')  # staff salary: leave days/month without pay cut
+
     users: Mapped[list["User"]] = relationship("User", back_populates="restaurant")
 
 

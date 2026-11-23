@@ -457,6 +457,14 @@ async def dashboard_summary(db: AsyncSession = Depends(get_db), u: User = Depend
         select(Order.order_number).where(*kot_q).order_by(Order.created_at.desc()).limit(2)
     )
 
+    # QR self-order requests awaiting staff — piggybacks on the Topbar's
+    # existing 30s poll so QR alerts add no extra requests.
+    from app.models.table_request import TableOrderRequest
+    qr_pending = await db.execute(
+        select(func.count(TableOrderRequest.id))
+        .where(TableOrderRequest.restaurant_id == rid, TableOrderRequest.status == "pending")
+    )
+
     revenue = rev.scalar()
     orders = cnt.scalar()
     return {
@@ -466,6 +474,7 @@ async def dashboard_summary(db: AsyncSession = Depends(get_db), u: User = Depend
         "pending_orders": pending.scalar(),
         "kot_pending": kot_cnt.scalar(),
         "kot_pending_numbers": list(kot_recent.scalars().all()),
+        "qr_pending": qr_pending.scalar(),
     }
 
 
