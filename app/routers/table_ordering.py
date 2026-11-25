@@ -9,8 +9,8 @@ staff_router   — authenticated POS endpoints (queue, accept/reject, settings, 
 """
 import re
 import secrets
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import date, datetime, time, timedelta, timezone
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -28,7 +28,7 @@ from app.core.table_token import (
 from app.db.session import get_db
 from app.models.menu import MenuItem, MenuCategory
 from app.models.order import Order
-from app.models.table_request import TableOrderRequest
+from app.models.table_request import TableOrderRequest, TableServiceCall
 from app.models.user import User, Restaurant
 from app.schemas.order import OrderCreate, OrderItemCreate, OrderStatusUpdate
 
@@ -38,6 +38,8 @@ staff_router = APIRouter(prefix="/table-ordering", tags=["QR Ordering"])
 MAX_LINES = 30
 MAX_QTY_PER_LINE = 20
 MAX_PENDING_PER_TABLE = 3
+CALL_TTL = timedelta(hours=3)        # an unanswered call older than this is stale
+PAID_SHOW = timedelta(hours=3)       # a phone that saw the open bill can see it turn "Paid" this long
 _VPA_RE = re.compile(r"^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9]{1,64}$")
 
 
@@ -69,6 +71,46 @@ def _upi_link(rest: Restaurant, amount: float, note: str) -> Optional[str]:
         f"upi://pay?pa={quote(rest.upi_vpa)}&pn={quote(rest.name or 'Restaurant')}"
         f"&am={amount:.2f}&cu=INR&tn={quote(note)}"
     )
+
+
+def _bill_out(order: Order, rest: Restaurant, table: str) -> dict:
+    return {
+        "order_number": order.order_number,
+        "items": [
+            {"name": i.name, "quantity": i.quantity, "total": i.total}
+            for i in order.items if not i.cancelled_at
+        ],
+        "subtotal": order.subtotal, "gst_amount": order.gst_amount,
+        "discount_amount": order.discount_amount, "total_amount": order.total_amount,
+        "payment_status": order.payment_status,
+        "upi_link": None if order.payment_status == "paid"
+        else _upi_link(rest, order.total_amount, f"{order.order_number} Table {table}"),
+    }
+
+
+def _table_day_start() -> datetime:
+    # Same window create_order uses to merge KOTs into a running table bill.
+    return datetime.combine(date.today(), time.min)
+
+
+async def close_bill_calls(db: AsyncSession, restaurant_id: int, table: Optional[str], u: User) -> None:
+    """Once a table has paid, its "Ask for bill" call is answered."""
+    if not table:
+        return
+    calls = (await db.execute(
+        select(TableServiceCall).where(
+            TableServiceCall.restaurant_id == restaurant_id, TableServiceCall.table_number == str(table),
+            TableServiceCall.kind == "bill", TableServiceCall.status == "open")
+    )).scalars().all()
+    for c in calls:
+        c.status = "done"
+        c.handled_by = u.id or None
+        c.handled_at = datetime.now(timezone.utc)
+
+
+def _call_out(c: TableServiceCall) -> dict:
+    return {"id": c.id, "table_number": c.table_number, "kind": c.kind, "pay_by": c.pay_by,
+            "status": c.status, "created_at": c.created_at}
 
 
 def _request_out(req: TableOrderRequest) -> dict:
@@ -253,22 +295,83 @@ async def guest_order_status(request: Request, token: str, request_id: int, key:
             kots = order.kot_statuses or {}
             out["kitchen_status"] = (
                 "paid" if order.payment_status == "paid"
+                else "cancelled" if order.status == "cancelled"
                 else kots.get(str(req.kot_number), order.status)
             )
             rest = await db.get(Restaurant, rid)
-            out["bill"] = {
-                "order_number": order.order_number,
-                "items": [
-                    {"name": i.name, "quantity": i.quantity, "total": i.total}
-                    for i in order.items if not i.cancelled_at
-                ],
-                "subtotal": order.subtotal, "gst_amount": order.gst_amount,
-                "discount_amount": order.discount_amount, "total_amount": order.total_amount,
-                "payment_status": order.payment_status,
-                "upi_link": None if order.payment_status == "paid"
-                else _upi_link(rest, order.total_amount, f"{order.order_number} Table {table}"),
-            }
+            out["bill"] = _bill_out(order, rest, table)
     return out
+
+
+@public_router.get("/{token}/table")
+@limiter.limit("120/minute", key_func=_table_key)
+async def guest_table_view(request: Request, token: str, seen: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """What everyone at this table can see: the running bill (all KOTs, whoever
+    ordered), orders still waiting for staff, and open waiter/bill calls. Lets a
+    second guest see what's already ordered instead of ordering it twice."""
+    rest, table = await _resolve_table(token, db)
+    base = (Order.restaurant_id == rest.id, Order.table_number == table,
+            Order.order_type == "dine_in", Order.status != "cancelled")
+    order = (await db.execute(
+        select(Order).where(*base, Order.payment_status == "unpaid", Order.created_at >= _table_day_start())
+        .options(selectinload(Order.items)).order_by(Order.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if not order and seen:
+        # Just paid? Only a phone that already saw this bill open (it sends the
+        # order number back) gets to see it as "Paid" — the next group sitting
+        # at the table must not see the previous group's bill.
+        order = (await db.execute(
+            select(Order).where(*base, Order.payment_status == "paid", Order.order_number == seen[:50],
+                                Order.updated_at >= datetime.now(timezone.utc) - PAID_SHOW)
+            .options(selectinload(Order.items)).order_by(Order.updated_at.desc()).limit(1)
+        )).scalar_one_or_none()
+
+    pending = (await db.execute(
+        select(TableOrderRequest).where(
+            TableOrderRequest.restaurant_id == rest.id, TableOrderRequest.table_number == table,
+            TableOrderRequest.status == "pending")
+        .order_by(TableOrderRequest.created_at)
+    )).scalars().all()
+    calls = (await db.execute(
+        select(TableServiceCall).where(
+            TableServiceCall.restaurant_id == rest.id, TableServiceCall.table_number == table,
+            TableServiceCall.status == "open",
+            TableServiceCall.created_at >= datetime.now(timezone.utc) - CALL_TTL)
+    )).scalars().all()
+    return {
+        "bill": _bill_out(order, rest, table) if order else None,
+        "pending": [{"id": r.id, "guest_name": r.guest_name, "created_at": r.created_at,
+                     "items": [{"name": i["name"], "quantity": i["quantity"]} for i in r.items]}
+                    for r in pending],
+        "calls": sorted({c.kind for c in calls}),
+    }
+
+
+class GuestCallIn(BaseModel):
+    kind: Literal["waiter", "bill"]
+    pay_by: Optional[Literal["cash", "upi", "card"]] = None
+
+
+@public_router.post("/{token}/call")
+@limiter.limit("10/minute", key_func=_table_key)
+async def guest_call(request: Request, token: str, body: GuestCallIn, db: AsyncSession = Depends(get_db)):
+    """Call waiter / ask for the bill. Repeated taps reuse the open call."""
+    rest, table = await _resolve_table(token, db)
+    existing = (await db.execute(
+        select(TableServiceCall).where(
+            TableServiceCall.restaurant_id == rest.id, TableServiceCall.table_number == table,
+            TableServiceCall.kind == body.kind, TableServiceCall.status == "open",
+            TableServiceCall.created_at >= datetime.now(timezone.utc) - CALL_TTL)
+        .limit(1)
+    )).scalar_one_or_none()
+    if existing:
+        if body.pay_by:
+            existing.pay_by = body.pay_by
+        return {"ok": True, "kind": body.kind, "already": True}
+    db.add(TableServiceCall(restaurant_id=rest.id, table_number=table, kind=body.kind,
+                            pay_by=body.pay_by if body.kind == "bill" else None, status="open"))
+    await db.flush()
+    return {"ok": True, "kind": body.kind, "already": False}
 
 
 # ── staff endpoints ────────────────────────────────────────────────────────────
@@ -314,6 +417,32 @@ async def reject_request(request_id: int, body: RejectIn, db: AsyncSession = Dep
     req.handled_by = u.id
     req.handled_at = datetime.now(timezone.utc)
     return _request_out(req)
+
+
+@staff_router.get("/calls")
+async def list_calls(db: AsyncSession = Depends(get_db), u: User = Depends(get_current_user)):
+    rows = (await db.execute(
+        select(TableServiceCall).where(
+            TableServiceCall.restaurant_id == u.restaurant_id, TableServiceCall.status == "open",
+            TableServiceCall.created_at >= datetime.now(timezone.utc) - CALL_TTL)
+        .order_by(TableServiceCall.created_at)
+    )).scalars().all()
+    return [_call_out(c) for c in rows]
+
+
+@staff_router.post("/calls/{call_id}/done")
+async def finish_call(call_id: int, db: AsyncSession = Depends(get_db), u: User = Depends(get_current_user)):
+    c = (await db.execute(
+        select(TableServiceCall).where(TableServiceCall.id == call_id,
+                                       TableServiceCall.restaurant_id == u.restaurant_id)
+    )).scalar_one_or_none()
+    if not c:
+        raise HTTPException(404, "Call not found")
+    if c.status == "open":
+        c.status = "done"
+        c.handled_by = u.id or None
+        c.handled_at = datetime.now(timezone.utc)
+    return _call_out(c)
 
 
 class QRSettingsIn(BaseModel):

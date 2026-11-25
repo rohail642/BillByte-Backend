@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from datetime import datetime, timedelta, timezone
 
 from app.db.session import get_db
@@ -16,7 +16,7 @@ from app.schemas.order import ManagerPinSetup, ManagerPinVerify
 from app.core.security import hash_password, verify_password, create_access_token, get_current_user
 from app.core.limiter import limiter
 from app.core.sanitize import SafeStr, SafeOptStr
-from app.core.validators import validate_password
+from app.core.validators import validate_password, NormEmail
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -24,8 +24,8 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 @router.post("/register", response_model=TokenResponse, status_code=201)
 @limiter.limit("5/minute")
 async def register(request: Request, body: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    existing = await db.execute(select(User).where(User.email == body.email))
-    if existing.scalar_one_or_none():
+    existing = await db.execute(select(User).where(func.lower(User.email) == body.email).limit(1))
+    if existing.scalars().first():
         raise HTTPException(400, "Email already registered")
 
     restaurant = Restaurant(
@@ -65,8 +65,11 @@ async def register(request: Request, body: RegisterRequest, db: AsyncSession = D
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
 async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == body.email))
-    user = result.scalar_one_or_none()
+    # .first(), not scalar_one: two accounts differing only in case must not crash login
+    result = await db.execute(
+        select(User).where(func.lower(User.email) == body.email).order_by(User.is_active.desc(), User.id).limit(1)
+    )
+    user = result.scalars().first()
     if not user or not verify_password(body.password, user.hashed_password):
         raise HTTPException(401, "Invalid email or password")
     if not user.is_active:
@@ -318,7 +321,7 @@ from app.core.security import hash_password
 
 class TeamMemberCreate(BaseModel):
     name: SafeStr
-    email: EmailStr
+    email: NormEmail
     password: str
     role: str = "waiter"  # waiter|cashier|manager|kitchen
 
@@ -373,8 +376,8 @@ async def add_team_member(
     if body.role not in ("waiter", "cashier", "manager", "kitchen"):
         raise HTTPException(400, "Invalid role. Use: waiter, cashier, manager, kitchen")
 
-    existing = await db.execute(select(User).where(User.email == body.email))
-    existing_user = existing.scalar_one_or_none()
+    existing = await db.execute(select(User).where(func.lower(User.email) == body.email).order_by(User.id).limit(1))
+    existing_user = existing.scalars().first()
 
     if existing_user:
         if existing_user.restaurant_id != u.restaurant_id or existing_user.is_active:

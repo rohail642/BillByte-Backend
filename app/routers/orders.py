@@ -4,6 +4,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import List
 from datetime import datetime, date, timezone, timedelta
+from app.core.localtime import local_today, local_midnight_utc, local_date_col
 from sqlalchemy import cast, Date as SADate
 import random
 
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/orders", tags=["Orders"])
 
 
 def _make_order_number() -> str:
-    return f"BB-{date.today().strftime('%Y%m%d')}-{random.randint(1000,9999)}"
+    return f"BB-{local_today().strftime('%Y%m%d')}-{random.randint(1000,9999)}"
 
 
 def _calc(subtotal: float, gst_rate: float, disc_pct: float):
@@ -123,7 +124,7 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), u:
     )
     db.add(order)
     await db.flush()
-    order.order_number = f"BB-{date.today().strftime('%Y%m%d')}-{order.id}"
+    order.order_number = f"BB-{local_today().strftime('%Y%m%d')}-{order.id}"
     await db.refresh(order, ["items"])
     return order
 
@@ -142,8 +143,8 @@ async def list_orders(
     q = select(Order).where(Order.restaurant_id == u.restaurant_id)
     if status:     q = q.where(Order.status == status)
     if order_type: q = q.where(Order.order_type == order_type)
-    if date_from:  q = q.where(cast(Order.created_at, SADate) >= date.fromisoformat(date_from))
-    if date_to:    q = q.where(cast(Order.created_at, SADate) <= date.fromisoformat(date_to))
+    if date_from:  q = q.where(local_date_col(Order.created_at) >= date.fromisoformat(date_from))
+    if date_to:    q = q.where(local_date_col(Order.created_at) <= date.fromisoformat(date_to))
     q = q.options(selectinload(Order.items)).order_by(Order.created_at.desc()).limit(limit)
     r = await db.execute(q)
     return r.scalars().all()
@@ -381,6 +382,8 @@ async def collect_all_for_table(
                 cust.total_visits += 1
                 cust.last_visit_at = datetime.utcnow()
 
+    from app.routers.table_ordering import close_bill_calls
+    await close_bill_calls(db, u.restaurant_id, table_number, u)
     return {"message": f"Collected ₹{round(total_collected,2)} from {len(orders)} order(s) on Table {table_number}", "total": round(total_collected, 2), "orders_paid": len(orders)}
 
 @router.get("/active-tables")
@@ -435,7 +438,7 @@ async def get_active_tables(
 
 @router.get("/summary", tags=["Dashboard"])
 async def dashboard_summary(db: AsyncSession = Depends(get_db), u: User = Depends(get_current_user)):
-    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today = local_midnight_utc()  # India midnight, same day as the nightly report
     rid = u.restaurant_id
 
     rev = await db.execute(
@@ -464,6 +467,12 @@ async def dashboard_summary(db: AsyncSession = Depends(get_db), u: User = Depend
         select(func.count(TableOrderRequest.id))
         .where(TableOrderRequest.restaurant_id == rid, TableOrderRequest.status == "pending")
     )
+    from app.models.table_request import TableServiceCall
+    qr_calls = await db.execute(
+        select(func.count(TableServiceCall.id)).where(
+            TableServiceCall.restaurant_id == rid, TableServiceCall.status == "open",
+            TableServiceCall.created_at >= datetime.now(timezone.utc) - timedelta(hours=3))
+    )
 
     revenue = rev.scalar()
     orders = cnt.scalar()
@@ -475,6 +484,7 @@ async def dashboard_summary(db: AsyncSession = Depends(get_db), u: User = Depend
         "kot_pending": kot_cnt.scalar(),
         "kot_pending_numbers": list(kot_recent.scalars().all()),
         "qr_pending": qr_pending.scalar(),
+        "qr_calls": qr_calls.scalar(),
     }
 
 
@@ -552,6 +562,9 @@ async def collect_payment(order_id: int, body: PaymentUpdate, db: AsyncSession =
     order.payment_method = body.payment_method
     order.payment_status = "paid"
     order.status = "paid"
+    if order.order_type == "dine_in":
+        from app.routers.table_ordering import close_bill_calls
+        await close_bill_calls(db, u.restaurant_id, order.table_number, u)
 
     # Auto-deduct inventory only if KOT was never sent (order went straight to paid)
     if prev_pay_status != 'paid' and order_prev_status not in ('kot_sent', 'preparing', 'ready', 'served'):

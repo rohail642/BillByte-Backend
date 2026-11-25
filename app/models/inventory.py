@@ -49,16 +49,16 @@ class InventoryItem(Base):
     def is_expiring_soon(self) -> bool:
         if not self.expiry_date:
             return False
-        from datetime import date
-        days_left = (self.expiry_date - date.today()).days
+        from app.core.localtime import local_today
+        days_left = (self.expiry_date - local_today()).days
         return 0 <= days_left <= 7
 
     @property
     def is_expired(self) -> bool:
         if not self.expiry_date:
             return False
-        from datetime import date
-        return self.expiry_date < date.today()
+        from app.core.localtime import local_today
+        return self.expiry_date < local_today()
 
 
 class InventoryUsageLog(Base):

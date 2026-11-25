@@ -4,6 +4,7 @@ from sqlalchemy import select, func
 from typing import List
 from datetime import date, timedelta
 import random
+from app.core.localtime import local_today, local_midnight_utc, local_date_col
 
 from app.db.session import get_db
 from app.models.inventory import InventoryItem, PurchaseOrder, InventoryUsageLog, Supplier
@@ -126,11 +127,12 @@ async def get_alerts(db: AsyncSession = Depends(get_db), u: User = Depends(get_c
 # ── USAGE HISTORY (daily) ─────────────────────────────────────────────────────
 @router.get("/usage-history")
 async def usage_history(days: int = 7, db: AsyncSession = Depends(get_db), u: User = Depends(get_current_user)):
-    from datetime import datetime, timedelta
-    start = datetime.utcnow() - timedelta(days=days)
+    days = max(1, min(days, 366))
+    start = local_midnight_utc(local_today() - timedelta(days=days - 1))
+    day = local_date_col(InventoryUsageLog.created_at)
     r = await db.execute(
         select(
-            func.date(InventoryUsageLog.created_at).label("day"),
+            day.label("day"),
             InventoryItem.name,
             func.sum(InventoryUsageLog.quantity_used).label("total_used"),
         )
@@ -138,8 +140,8 @@ async def usage_history(days: int = 7, db: AsyncSession = Depends(get_db), u: Us
         .where(InventoryUsageLog.restaurant_id == u.restaurant_id,
                InventoryUsageLog.created_at >= start,
                InventoryUsageLog.quantity_used > 0)
-        .group_by(func.date(InventoryUsageLog.created_at), InventoryItem.name)
-        .order_by(func.date(InventoryUsageLog.created_at).desc())
+        .group_by(day, InventoryItem.name)
+        .order_by(day.desc())
     )
     return [{"date": str(row.day), "item": row.name, "used": round(row.total_used, 3)} for row in r]
 
@@ -152,7 +154,7 @@ async def list_pos(db: AsyncSession = Depends(get_db), u: User = Depends(get_cur
 
 @router.post("/purchase-orders", response_model=PurchaseOrderOut, status_code=201)
 async def create_po(body: PurchaseOrderCreate, db: AsyncSession = Depends(get_db), u: User = Depends(get_current_user)):
-    po_num = f"PO-{date.today().strftime('%Y%m%d')}-{random.randint(100,999)}"
+    po_num = f"PO-{local_today().strftime('%Y%m%d')}-{random.randint(100,999)}"
     po = PurchaseOrder(restaurant_id=u.restaurant_id, po_number=po_num, **body.model_dump())
     db.add(po); await db.flush(); return po
 

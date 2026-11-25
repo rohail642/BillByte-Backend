@@ -3,12 +3,12 @@ from typing import Optional, List, Any
 from datetime import datetime
 
 from app.core.sanitize import SafeStr, SafeOptStr
-from app.core.validators import validate_password
+from app.core.validators import validate_password, NormEmail
 
 
 class RegisterRequest(BaseModel):
     name: SafeStr
-    email: EmailStr
+    email: NormEmail
     password: str
     restaurant_name: SafeStr
     phone: SafeOptStr = None
@@ -20,7 +20,7 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: NormEmail
     password: str
 
 

@@ -34,3 +34,19 @@ class TableOrderRequest(Base):
     handled_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     handled_at = mapped_column(DateTime(timezone=True), nullable=True)
     created_at = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TableServiceCall(Base):
+    """A guest tapping "Call waiter" or "Ask for bill" on the table QR page.
+    One open call per table and kind; staff mark it done."""
+    __tablename__ = "table_service_calls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    restaurant_id: Mapped[int] = mapped_column(ForeignKey("restaurants.id", ondelete="CASCADE"), index=True)
+    table_number: Mapped[str] = mapped_column(String(20))
+    kind: Mapped[str] = mapped_column(String(20))            # waiter | bill
+    pay_by: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # cash | upi | card (bill only)
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)  # open | done
+    handled_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    handled_at = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at = mapped_column(DateTime(timezone=True), server_default=func.now())

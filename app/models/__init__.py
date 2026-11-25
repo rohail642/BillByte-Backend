@@ -7,7 +7,7 @@ from app.models.staff import Staff, AttendanceLog, StaffAdvance, SalaryPayout
 from app.models.recipe import Recipe, RecipeIngredient
 from app.models.cancellation import CancellationEvent
 from app.models.telegram import TelegramLinkToken, TelegramDeliveryLog
-from app.models.table_request import TableOrderRequest
+from app.models.table_request import TableOrderRequest, TableServiceCall
 
 __all__ = [
     "User", "Restaurant", "MenuItem", "MenuCategory",
@@ -19,4 +19,5 @@ __all__ = [
     "CancellationEvent",
     "TelegramLinkToken", "TelegramDeliveryLog",
     "TableOrderRequest",
+    "TableServiceCall",
 ]

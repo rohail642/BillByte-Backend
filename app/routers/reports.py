@@ -7,14 +7,15 @@ from app.db.session import get_db
 from app.models.order import Order, OrderItem
 from app.models.user import User
 from app.core.security import get_current_user
+from app.core.localtime import TZ, local_today, local_midnight_utc, local_date_col, utc_now
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
 def _start(period: str) -> datetime:
-    now = datetime.utcnow()
+    now = utc_now()
     if period == "today":
-        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return local_midnight_utc()
     elif period == "week":
         return now - timedelta(days=7)
     else:
@@ -81,16 +82,18 @@ async def top_dishes(period: str = "today", limit: int = 10, db: AsyncSession = 
 @router.get("/revenue-trend")
 async def revenue_trend(days: int = 7, db: AsyncSession = Depends(get_db), u: User = Depends(get_current_user)):
     """Daily revenue for the past N days — feeds the dashboard chart."""
-    start = datetime.utcnow() - timedelta(days=days)
+    days = max(1, min(days, 366))
+    start = local_midnight_utc(local_today() - timedelta(days=days - 1))
+    day = local_date_col(Order.created_at)
     r = await db.execute(
         select(
-            func.date(Order.created_at).label("day"),
+            day.label("day"),
             func.coalesce(func.sum(Order.total_amount), 0).label("revenue"),
             func.count(Order.id).label("orders"),
         )
         .where(Order.restaurant_id == u.restaurant_id, Order.payment_status == "paid", Order.created_at >= start)
-        .group_by(func.date(Order.created_at))
-        .order_by(func.date(Order.created_at))
+        .group_by(day)
+        .order_by(day)
     )
     return [{"date": str(row.day), "revenue": round(row.revenue, 2), "orders": row.orders} for row in r]
 
@@ -106,7 +109,7 @@ async def gst_summary(
 ):
     """GST summary — accepts either date_from/date_to range or month/year."""
     from datetime import date, timedelta
-    today = date.today()
+    today = local_today()
 
     if date_from and date_to:
         month = date.fromisoformat(date_from).month
@@ -122,12 +125,12 @@ async def gst_summary(
 
     if date_from and date_to:
         base = base.where(
-            func.date(Order.created_at) >= date_from,
-            func.date(Order.created_at) <= date_to,
+            local_date_col(Order.created_at) >= date.fromisoformat(date_from),
+            local_date_col(Order.created_at) <= date.fromisoformat(date_to),
         )
     else:
-        start = datetime(year, month, 1)
-        end   = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+        start = local_midnight_utc(date(year, month, 1))
+        end   = local_midnight_utc(date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1))
         base  = base.where(Order.created_at >= start, Order.created_at < end)
 
     r = await db.execute(base.order_by(Order.created_at))
@@ -149,8 +152,8 @@ async def gst_summary(
         "orders": [
             {
                 "order_number": o.order_number,
-                "date": o.created_at.strftime("%d-%b-%Y"),
-                "time": o.created_at.strftime("%I:%M %p"),
+                "date": o.created_at.astimezone(TZ).strftime("%d-%b-%Y"),   # India time, not UTC
+                "time": o.created_at.astimezone(TZ).strftime("%I:%M %p"),
                 "order_type": o.order_type,
                 "taxable_value": round(o.subtotal or 0, 2),
                 "gst": round(o.gst_amount or 0, 2),

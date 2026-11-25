@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 
+from app.core.localtime import local_today
 from app.db.session import get_db
 from app.models.order import Order, OrderItem
 from app.models.menu import MenuItem
@@ -167,7 +168,7 @@ async def zomato_webhook(
     )
     db.add(order)
     await db.flush()
-    order.order_number = f"BB-{date.today().strftime('%Y%m%d')}-{order.id}"
+    order.order_number = f"BB-{local_today().strftime('%Y%m%d')}-{order.id}"
     await db.refresh(order, ["items"])
 
     # Deduct inventory — same as when KOT is sent manually
@@ -303,7 +304,7 @@ async def swiggy_webhook(
     )
     db.add(order)
     await db.flush()
-    order.order_number = f"BB-{date.today().strftime('%Y%m%d')}-{order.id}"
+    order.order_number = f"BB-{local_today().strftime('%Y%m%d')}-{order.id}"
     await db.refresh(order, ["items"])
 
     # Deduct inventory — same as when KOT is sent manually

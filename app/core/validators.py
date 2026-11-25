@@ -30,3 +30,11 @@ def validate_password(password: str) -> str:
     if not re.search(r"\d", password):
         raise ValueError("Password must contain at least one digit.")
     return password
+
+
+# Emails are matched case-insensitively: touch keyboards on the counter PC
+# capitalise the first letter or add a trailing space, which used to fail login.
+from typing import Annotated
+from pydantic import BeforeValidator, EmailStr
+
+NormEmail = Annotated[EmailStr, BeforeValidator(lambda v: v.strip().lower() if isinstance(v, str) else v)]
