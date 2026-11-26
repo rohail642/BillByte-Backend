@@ -457,51 +457,45 @@ async def get_active_tables(
 async def dashboard_summary(db: AsyncSession = Depends(get_db), u: User = Depends(get_current_user)):
     today = local_midnight_utc()  # India midnight, same day as the nightly report
     rid = u.restaurant_id
+    from app.models.table_request import TableOrderRequest, TableServiceCall
 
-    rev = await db.execute(
-        select(func.coalesce(func.sum(Order.total_amount), 0))
-        .where(Order.restaurant_id == rid, Order.payment_status == "paid", Order.created_at >= today)
-    )
-    cnt = await db.execute(
-        select(func.count(Order.id)).where(Order.restaurant_id == rid, Order.created_at >= today)
-    )
-    pending = await db.execute(
-        select(func.count(Order.id)).where(Order.restaurant_id == rid, Order.status == "pending")
-    )
-    # Active-in-kitchen badge for the Topbar. Counting here (plus the two most
-    # recent order numbers for the notification subtitle) means the Topbar no
-    # longer has to poll the full order list just to render a number.
+    # Every screen polls this every 30 s, and the DB is ~60 ms away, so all the
+    # counts come back in ONE query (was 7 separate round trips).
     kot_q = (Order.restaurant_id == rid, Order.status == "kot_sent", Order.payment_status != "paid")
-    kot_cnt = await db.execute(select(func.count(Order.id)).where(*kot_q))
-    kot_recent = await db.execute(
-        select(Order.order_number).where(*kot_q).order_by(Order.created_at.desc()).limit(2)
-    )
-
-    # QR self-order requests awaiting staff — piggybacks on the Topbar's
-    # existing 30s poll so QR alerts add no extra requests.
-    from app.models.table_request import TableOrderRequest
-    qr_pending = await db.execute(
-        select(func.count(TableOrderRequest.id))
-        .where(TableOrderRequest.restaurant_id == rid, TableOrderRequest.status == "pending")
-    )
-    from app.models.table_request import TableServiceCall
-    qr_calls = await db.execute(
-        select(func.count(TableServiceCall.id)).where(
+    sub = lambda q: q.scalar_subquery()
+    row = (await db.execute(select(
+        sub(select(func.coalesce(func.sum(Order.total_amount), 0))
+            .where(Order.restaurant_id == rid, Order.payment_status == "paid", Order.created_at >= today)).label("revenue"),
+        sub(select(func.count(Order.id)).where(Order.restaurant_id == rid, Order.created_at >= today)).label("orders"),
+        sub(select(func.count(Order.id)).where(Order.restaurant_id == rid, Order.status == "pending")).label("pending"),
+        # Active-in-kitchen badge for the Topbar.
+        sub(select(func.count(Order.id)).where(*kot_q)).label("kot"),
+        # QR self-order requests awaiting staff, and open waiter/bill calls.
+        sub(select(func.count(TableOrderRequest.id))
+            .where(TableOrderRequest.restaurant_id == rid, TableOrderRequest.status == "pending")).label("qr_pending"),
+        sub(select(func.count(TableServiceCall.id)).where(
             TableServiceCall.restaurant_id == rid, TableServiceCall.status == "open",
-            TableServiceCall.created_at >= datetime.now(timezone.utc) - timedelta(hours=3))
-    )
+            TableServiceCall.created_at >= datetime.now(timezone.utc) - timedelta(hours=3))).label("qr_calls"),
+    ))).one()
 
-    revenue = rev.scalar()
-    orders = cnt.scalar()
+    # The two most recent KOT numbers (notification subtitle) — only when there are any.
+    kot_numbers = []
+    if row.kot:
+        kot_numbers = list((await db.execute(
+            select(Order.order_number).where(*kot_q).order_by(Order.created_at.desc()).limit(2)
+        )).scalars().all())
+
+    revenue = row.revenue
+    orders = row.orders
     return {
         "today_revenue": revenue,
         "today_orders": orders,
         "avg_bill": round(revenue / orders, 2) if orders else 0,
-        "pending_orders": pending.scalar(),
-        "kot_pending": kot_cnt.scalar(),
-        "kot_pending_numbers": list(kot_recent.scalars().all()),
-        "qr_pending": qr_pending.scalar(),
-        "qr_calls": qr_calls.scalar(),
+        "pending_orders": row.pending,
+        "kot_pending": row.kot,
+        "kot_pending_numbers": kot_numbers,
+        "qr_pending": row.qr_pending,
+        "qr_calls": row.qr_calls,
     }
 
 

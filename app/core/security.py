@@ -53,8 +53,15 @@ async def get_current_user(
     from app.models.user import User
     from sqlalchemy import select
 
-    result = await db.execute(select(User).where(User.id == int(user_id)))
-    user = result.scalar_one_or_none()
+    from app.models.user import Restaurant
+    # User and restaurant in ONE query (was two round trips on every request).
+    # Both land in the session, so later db.get(Restaurant, …) costs nothing.
+    row = (await db.execute(
+        select(User, Restaurant)
+        .outerjoin(Restaurant, Restaurant.id == User.restaurant_id)
+        .where(User.id == int(user_id))
+    )).first()
+    user, rest = (row[0], row[1]) if row else (None, None)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
@@ -78,8 +85,6 @@ async def get_current_user(
 
     # Kick out all restaurant staff if the restaurant has been deactivated/expired
     if user.restaurant_id:
-        from app.models.user import Restaurant
-        rest = await db.get(Restaurant, user.restaurant_id)
         if rest and not rest.is_active:
             raise HTTPException(
                 status_code=401,

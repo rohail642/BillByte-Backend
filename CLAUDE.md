@@ -93,7 +93,10 @@ Payment is collected via `PATCH /api/orders/{id}/pay` which calculates GST from 
 ## Key design decisions
 
 - SQLAlchemy `expire_on_commit=False` — objects remain accessible after commit without re-query
-- Connection pool tuned for Supabase (`pool_size=3`, `prepared_statement_cache_size=0` required for pgbouncer compatibility)
+- Connection pool tuned for Supabase (`app/db/session.py`). The API (Railway, Singapore) is ~60 ms from the DB (Supabase, Mumbai), so round trips dominate request time:
+  - `DATABASE_URL` uses the Supavisor **session-mode** port 5432, so the prepared-statement cache is ON (256). It switches itself OFF if the URL uses the transaction-mode port 6543 (pgbouncer-style), where cached statements break.
+  - `pool_pre_ping` is off; a `checkout` event pings only connections idle ≥30 s and replaces dead ones (DisconnectionError → pool retries).
+  - `get_current_user` loads user + restaurant in one query; `/orders/summary` returns all counts in one query. Keep hot endpoints to as few statements as possible.
 - `OrderItem.name` stores the item name at order time (denormalized) — so menu edits don't corrupt historical orders
 - Swiggy sends prices in paise; the webhook parser divides by 100
 - Token expiry defaults to 1440 minutes (24 hours), configurable via `ACCESS_TOKEN_EXPIRE_MINUTES`
