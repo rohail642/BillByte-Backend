@@ -73,9 +73,29 @@ def _upi_link(rest: Restaurant, amount: float, note: str) -> Optional[str]:
     )
 
 
+def _bill_groups(order: Order) -> list:
+    """Items grouped by who ordered them ("Riya's order", "Added by staff"),
+    in the order they were placed. A guest who ordered twice gets one group."""
+    info = order.kot_info or {}
+    groups: dict[str, dict] = {}
+    for i in sorted((i for i in order.items if not i.cancelled_at), key=lambda i: (i.kot_number or 1, i.id or 0)):
+        meta = info.get(str(i.kot_number or 1)) or {}
+        if meta.get("by") == "qr":
+            label = f"{meta['name']}'s order" if meta.get("name") else "Guest order"
+        elif meta.get("by") == "staff":
+            label = "Added by staff"
+        else:
+            label = f"Order {i.kot_number or 1}"
+        g = groups.setdefault(label, {"label": label, "items": [], "total": 0.0})
+        g["items"].append({"name": i.name, "quantity": i.quantity, "total": i.total})
+        g["total"] = round(g["total"] + (i.total or 0), 2)
+    return list(groups.values())
+
+
 def _bill_out(order: Order, rest: Restaurant, table: str) -> dict:
     return {
         "order_number": order.order_number,
+        "groups": _bill_groups(order),
         "items": [
             {"name": i.name, "quantity": i.quantity, "total": i.total}
             for i in order.items if not i.cancelled_at
@@ -152,6 +172,10 @@ async def _accept(req: TableOrderRequest, db: AsyncSession, u: User) -> Order:
     req.status = "accepted"
     req.order_id = order.id
     req.kot_number = max((i.kot_number for i in order.items), default=1)
+    # This round came from a guest: label it with their name (waiter screen, guest bill).
+    info = dict(order.kot_info or {})
+    info[str(req.kot_number)] = {"by": "qr", "name": req.guest_name or None, "note": req.notes or None}
+    order.kot_info = info
     req.handled_by = u.id if u.id else None
     req.handled_at = datetime.now(timezone.utc)
     await db.flush()

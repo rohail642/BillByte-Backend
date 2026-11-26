@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
-from typing import List
+from typing import List, Optional
 from datetime import datetime, date, timezone, timedelta
 from app.core.localtime import local_today, local_midnight_utc, local_date_col
 from sqlalchemy import cast, Date as SADate
@@ -20,6 +20,20 @@ router = APIRouter(prefix="/orders", tags=["Orders"])
 
 def _make_order_number() -> str:
     return f"BB-{local_today().strftime('%Y%m%d')}-{random.randint(1000,9999)}"
+
+
+def _print_note(notes, items) -> Optional[str]:
+    """One line for the kitchen: the round's note plus each dish note.
+    The desktop KOT printer prints order.notes for the newest KOT, so this is
+    written to order.notes on every round (earlier rounds stay in kot_info)."""
+    parts = [notes] + [f"{it.name}: {it.notes}" for it in items if getattr(it, "notes", None)]
+    return " · ".join(p for p in parts if p) or None
+
+
+def _record_kot(order, kot: int, u, notes) -> None:
+    info = dict(order.kot_info or {})
+    info[str(kot)] = {"by": "staff", "name": getattr(u, "name", None), "note": notes or None}
+    order.kot_info = info
 
 
 def _calc(subtotal: float, gst_rate: float, disc_pct: float):
@@ -76,10 +90,12 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), u:
                 new_item = OrderItem(
                     menu_item_id=it.menu_item_id, name=it.name,
                     price=it.price, quantity=it.quantity, total=lt,
-                    kot_number=next_kot,
+                    kot_number=next_kot, notes=it.notes,
                 )
                 existing.items.append(new_item)
                 new_items.append(new_item)
+            existing.notes = _print_note(body.notes, body.items)  # this round's note, for the KOT printer
+            _record_kot(existing, next_kot, u, body.notes)
             disc, gst, total = _calc(new_subtotal, gst_rate, existing.discount_percent)
             existing.subtotal = round(new_subtotal, 2)
             existing.gst_amount = gst
@@ -119,9 +135,10 @@ async def create_order(body: OrderCreate, db: AsyncSession = Depends(get_db), u:
         discount_amount=disc, discount_percent=body.discount_percent,
         total_amount=total, status="pending", payment_status="unpaid",
         platform=body.platform, platform_order_id=body.platform_order_id,
-        notes=body.notes, created_by=u.id, items=items,
+        notes=_print_note(body.notes, body.items), created_by=u.id, items=items,
         kot_statuses={'1': 'kot_sent'},
     )
+    _record_kot(order, 1, u, body.notes)
     db.add(order)
     await db.flush()
     order.order_number = f"BB-{local_today().strftime('%Y%m%d')}-{order.id}"
@@ -214,10 +231,11 @@ async def add_items_to_order(
         new_item = OrderItem(
             menu_item_id=it.menu_item_id, name=it.name,
             price=it.price, quantity=it.quantity, total=lt,
-            kot_number=next_kot,
+            kot_number=next_kot, notes=it.notes,
         )
         order.items.append(new_item)
         new_items.append(new_item)
+    _record_kot(order, next_kot, u, body.notes)
 
     # Recalculate totals and surface new items to kitchen
     disc, gst, total = _calc(new_subtotal, gst_rate, order.discount_percent)
@@ -228,8 +246,7 @@ async def add_items_to_order(
     statuses = dict(order.kot_statuses or {})
     statuses[str(next_kot)] = 'kot_sent'
     order.kot_statuses = statuses
-    if body.notes:
-        order.notes = body.notes
+    order.notes = _print_note(body.notes, body.items)  # this round's note, for the KOT printer
     order.status = _derive_order_status(statuses)
 
     await db.flush()

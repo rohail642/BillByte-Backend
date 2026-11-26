@@ -26,6 +26,7 @@ async def _apply_schema_additions():
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS pinelabs_terminal_id VARCHAR(200)",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS pinelabs_security_token VARCHAR(500)",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS gst_rate FLOAT NOT NULL DEFAULT 5.0",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS kot_info JSON",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS printer_config JSONB",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS manager_pin VARCHAR(128)",

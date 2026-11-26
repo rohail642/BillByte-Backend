@@ -96,6 +96,7 @@ class OrderOut(BaseModel):
     items: List[OrderItemOut]
     created_at: datetime
     kot_statuses: Optional[dict] = None
+    kot_info: Optional[dict] = None
 
     class Config:
         from_attributes = True

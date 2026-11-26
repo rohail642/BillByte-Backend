@@ -30,6 +30,9 @@ class Order(Base):
 
     # Per-KOT statuses e.g. {"1": "preparing", "2": "kot_sent"}
     kot_statuses: Mapped[Optional[dict]] = mapped_column(MutableDict.as_mutable(JSON), nullable=True)
+    # Who placed each KOT round and its note, e.g.
+    # {"1": {"by": "qr", "name": "Riya", "note": "less spicy"}, "2": {"by": "staff", "name": "Wasim", "note": null}}
+    kot_info: Mapped[Optional[dict]] = mapped_column(MutableDict.as_mutable(JSON), nullable=True)
 
     payment_method: Mapped[str] = mapped_column(String(30), nullable=True)  # cash|upi|card
     payment_status: Mapped[str] = mapped_column(String(20), default="unpaid")
