@@ -55,6 +55,7 @@ class MenuItemOut(BaseModel):
     is_available: bool
     stock_qty: Optional[int]
     sort_order: int
+    image_version: Optional[int] = None
 
     class Config:
         from_attributes = True

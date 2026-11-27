@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from collections import OrderedDict
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update, func as sa_func
 from typing import List
@@ -6,7 +8,8 @@ from io import BytesIO
 import openpyxl
 
 from app.db.session import get_db
-from app.models.menu import MenuItem, MenuCategory
+from app.models.menu import MenuItem, MenuCategory, MenuItemImage
+from app.core.limiter import limiter
 from app.models.recipe import Recipe
 from app.models.order import OrderItem
 from app.models.user import User
@@ -22,6 +25,7 @@ _FOOD_TYPE_MAP = {
 }
 
 router = APIRouter(prefix="/menu", tags=["Menu"])
+public_router = APIRouter(prefix="/public/menu-image", tags=["Menu (public)"])
 
 
 @router.get("/categories", response_model=List[CategoryOut])
@@ -216,3 +220,119 @@ async def import_menu_from_excel(
         "skipped": skipped,
         "errors": errors[:10],
     }
+
+
+# ── Dish photos ────────────────────────────────────────────────────────────────
+# The browser compresses photos before upload (≈640 px WebP/JPEG). They live in
+# menu_item_images (never loaded with menu queries) and are served from a
+# versioned URL with a one-year immutable cache, plus a small in-memory cache
+# here, so each device downloads a photo once and the DB is rarely touched.
+
+MAX_IMAGE_BYTES = 300 * 1024
+_SIGNATURES = (
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+)
+
+
+def _sniff_image(data: bytes):
+    """Trust the bytes, not the filename/content-type header. SVG is never accepted."""
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    for sig, mime in _SIGNATURES:
+        if data.startswith(sig):
+            return mime
+    return None
+
+
+class _ImageCache:
+    """Tiny LRU of recently served photos (bounded by total bytes)."""
+    def __init__(self, max_bytes: int = 24 * 1024 * 1024):
+        self.max_bytes, self.size, self.items = max_bytes, 0, OrderedDict()
+
+    def get(self, key):
+        v = self.items.get(key)
+        if v is not None:
+            self.items.move_to_end(key)
+        return v
+
+    def drop_item(self, item_id: int):
+        """Forget every cached version of a dish's photo (after replace/delete)."""
+        for key in [k for k in self.items if k[0] == item_id]:
+            self.size -= len(self.items.pop(key)[1])
+
+    def put(self, key, value):
+        if key in self.items:
+            return
+        self.items[key] = value
+        self.size += len(value[1])
+        while self.size > self.max_bytes and self.items:
+            _, (_, data) = self.items.popitem(last=False)
+            self.size -= len(data)
+
+
+_image_cache = _ImageCache()
+
+
+async def _own_item(item_id: int, db: AsyncSession, u: User) -> MenuItem:
+    item = (await db.execute(
+        select(MenuItem).where(MenuItem.id == item_id, MenuItem.restaurant_id == u.restaurant_id)
+    )).scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Item not found")
+    return item
+
+
+@router.put("/items/{item_id}/image", response_model=MenuItemOut)
+async def upload_item_image(item_id: int, file: UploadFile = File(...),
+                            db: AsyncSession = Depends(get_db), u: User = Depends(require_owner)):
+    item = await _own_item(item_id, db, u)
+    data = await file.read(MAX_IMAGE_BYTES + 1)
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "Photo is too large (max 300 KB after compression).")
+    mime = _sniff_image(data)
+    if not mime:
+        raise HTTPException(415, "Please upload a JPEG, PNG or WebP photo.")
+    row = await db.get(MenuItemImage, item.id)
+    if row:
+        row.data, row.mime = data, mime
+    else:
+        db.add(MenuItemImage(menu_item_id=item.id, restaurant_id=u.restaurant_id, mime=mime, data=data))
+    item.image_version = (item.image_version or 0) + 1
+    await db.flush()
+    _image_cache.drop_item(item.id)
+    return item
+
+
+@router.delete("/items/{item_id}/image", response_model=MenuItemOut)
+async def delete_item_image(item_id: int, db: AsyncSession = Depends(get_db), u: User = Depends(require_owner)):
+    item = await _own_item(item_id, db, u)
+    await db.execute(delete(MenuItemImage).where(MenuItemImage.menu_item_id == item.id))
+    item.image_version = None
+    await db.flush()
+    _image_cache.drop_item(item.id)
+    return item
+
+
+@public_router.get("/{item_id}/{version}")
+@limiter.limit("600/minute")
+async def get_item_image(request: Request, item_id: int, version: int, db: AsyncSession = Depends(get_db)):
+    """Public (guest menus show photos). The version in the URL changes on every
+    upload, so responses can be cached forever."""
+    key = (item_id, version)
+    hit = _image_cache.get(key)
+    if hit is None:
+        row = (await db.execute(
+            select(MenuItemImage.mime, MenuItemImage.data, MenuItem.image_version)
+            .join(MenuItem, MenuItem.id == MenuItemImage.menu_item_id)
+            .where(MenuItemImage.menu_item_id == item_id)
+        )).first()
+        if not row or row.image_version != version:
+            raise HTTPException(404, "Not found")
+        hit = (row.mime, bytes(row.data))
+        _image_cache.put(key, hit)
+    mime, data = hit
+    return Response(content=data, media_type=mime, headers={
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+    })

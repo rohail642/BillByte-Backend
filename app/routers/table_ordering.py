@@ -222,7 +222,7 @@ async def guest_menu(request: Request, token: str, db: AsyncSession = Depends(ge
         "items": [
             {
                 "id": i.id, "name": i.name, "description": i.description,
-                "price": i.price, "emoji": i.emoji, "food_type": i.food_type,
+                "price": i.price, "emoji": i.emoji, "food_type": i.food_type, "image_version": i.image_version,
                 "category_id": i.category_id if i.category_id in cat_ids else None,
             }
             for i in items

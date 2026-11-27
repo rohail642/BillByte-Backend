@@ -1,5 +1,5 @@
 from app.models.user import User, Restaurant
-from app.models.menu import MenuItem, MenuCategory
+from app.models.menu import MenuItem, MenuCategory, MenuItemImage
 from app.models.order import Order, OrderItem
 from app.models.inventory import InventoryItem, PurchaseOrder, InventoryUsageLog, Supplier
 from app.models.customer import Customer, LoyaltyTransaction
@@ -10,7 +10,7 @@ from app.models.telegram import TelegramLinkToken, TelegramDeliveryLog
 from app.models.table_request import TableOrderRequest, TableServiceCall
 
 __all__ = [
-    "User", "Restaurant", "MenuItem", "MenuCategory",
+    "User", "Restaurant", "MenuItem", "MenuCategory", "MenuItemImage",
     "Order", "OrderItem", "InventoryItem", "PurchaseOrder",
     "InventoryUsageLog", "Supplier",
     "Customer", "LoyaltyTransaction",

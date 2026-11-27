@@ -41,6 +41,7 @@ async def _apply_schema_additions():
         "CREATE INDEX IF NOT EXISTS ix_users_telegram_chat_id ON users (telegram_chat_id)",
         # Per-menu-item stock counter (NULL = not tracked)
         "ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_qty INTEGER",
+        "ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS image_version INTEGER",
         # QR table self-ordering (table_order_requests itself comes from create_all)
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS qr_ordering_enabled BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS qr_auto_accept BOOLEAN NOT NULL DEFAULT FALSE",
@@ -152,6 +153,7 @@ app.add_middleware(
 # ── ROUTERS ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router,       prefix="/api")
 app.include_router(menu.router,       prefix="/api")
+app.include_router(menu.public_router, prefix="/api")
 app.include_router(orders.router,     prefix="/api")
 app.include_router(inventory.router,  prefix="/api")
 app.include_router(customers.router,  prefix="/api")
